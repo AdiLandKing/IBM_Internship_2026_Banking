@@ -1,8 +1,8 @@
 spring.application.name=safebanking
 
 spring.datasource.url=jdbc:postgresql://localhost:5432/safebanking_db
-spring.datasource.username=admin
-spring.datasource.password=secretpassword
+spring.datasource.username=YOUR_USERNAME_HERE
+spring.datasource.password=YOUR_PASSWORD_HERE
 spring.datasource.driver-class-name=org.postgresql.Driver
 
 spring.jpa.hibernate.ddl-auto=update
