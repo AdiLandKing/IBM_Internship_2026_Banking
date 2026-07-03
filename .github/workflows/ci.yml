@@ -2,24 +2,30 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    paths:
+      - 'safebanking/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches:
       - main
+    paths:
+      - 'safebanking/**'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  maven:
+  maven-verify:
     name: Maven Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     defaults:
       run:
         working-directory: safebanking
@@ -34,9 +40,33 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+          cache-dependency-path: safebanking/pom.xml
 
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
       - name: Verify
-        run: ./mvnw -B verify
+        run: ./mvnw -B -ntp verify
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: safebanking/target/surefire-reports/
+
+      - name: Upload application jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safebanking-jar
+          path: safebanking/target/*.jar
+
+      - name: Report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Maven Tests
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+          fail-on-error: true
