@@ -1,5 +1,6 @@
-package com.elsys.safebanking.user;
+package com.elsys.safebanking.repository;
 
+import com.elsys.safebanking.model.AppUser;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 

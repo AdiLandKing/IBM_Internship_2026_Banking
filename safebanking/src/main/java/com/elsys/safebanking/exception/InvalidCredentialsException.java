@@ -1,4 +1,4 @@
-package com.elsys.safebanking.auth;
+package com.elsys.safebanking.exception;
 
 public class InvalidCredentialsException extends RuntimeException {
     public InvalidCredentialsException(String message) {

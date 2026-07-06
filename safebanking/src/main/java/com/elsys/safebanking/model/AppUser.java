@@ -1,4 +1,4 @@
-package com.elsys.safebanking.user;
+package com.elsys.safebanking.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -1,6 +1,6 @@
-package com.elsys.safebanking.security;
+package com.elsys.safebanking.service;
 
-import com.elsys.safebanking.user.UserRepository;
+import com.elsys.safebanking.repository.UserRepository;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;

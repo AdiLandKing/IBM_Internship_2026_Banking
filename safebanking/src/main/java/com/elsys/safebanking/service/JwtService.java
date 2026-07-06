@@ -1,4 +1,4 @@
-package com.elsys.safebanking.security;
+package com.elsys.safebanking.service;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

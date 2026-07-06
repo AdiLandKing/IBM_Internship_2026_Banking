@@ -1,5 +1,9 @@
-package com.elsys.safebanking.user;
+package com.elsys.safebanking.service;
 
+import com.elsys.safebanking.dto.UpdateProfileRequest;
+import com.elsys.safebanking.dto.UserProfileResponse;
+import com.elsys.safebanking.model.AppUser;
+import com.elsys.safebanking.repository.UserRepository;
 import java.util.Locale;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;

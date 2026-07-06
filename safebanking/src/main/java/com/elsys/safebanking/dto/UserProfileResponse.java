@@ -1,5 +1,6 @@
-package com.elsys.safebanking.user;
+package com.elsys.safebanking.dto;
 
+import com.elsys.safebanking.model.AppUser;
 import java.time.Instant;
 
 public record UserProfileResponse(

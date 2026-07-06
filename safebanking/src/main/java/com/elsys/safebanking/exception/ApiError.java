@@ -1,4 +1,4 @@
-package com.elsys.safebanking.common;
+package com.elsys.safebanking.exception;
 
 import java.time.Instant;
 import java.util.Map;

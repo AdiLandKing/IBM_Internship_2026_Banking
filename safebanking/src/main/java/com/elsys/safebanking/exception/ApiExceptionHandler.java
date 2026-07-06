@@ -1,7 +1,7 @@
-package com.elsys.safebanking.common;
+package com.elsys.safebanking.exception;
 
-import com.elsys.safebanking.auth.DuplicateEmailException;
-import com.elsys.safebanking.auth.InvalidCredentialsException;
+import com.elsys.safebanking.exception.DuplicateEmailException;
+import com.elsys.safebanking.exception.InvalidCredentialsException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
 import java.util.Map;

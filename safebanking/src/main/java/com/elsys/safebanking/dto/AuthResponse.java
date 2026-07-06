@@ -1,6 +1,6 @@
-package com.elsys.safebanking.auth;
+package com.elsys.safebanking.dto;
 
-import com.elsys.safebanking.user.UserProfileResponse;
+import com.elsys.safebanking.dto.UserProfileResponse;
 
 public record AuthResponse(
         String tokenType,

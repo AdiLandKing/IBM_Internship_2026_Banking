@@ -1,5 +1,8 @@
-package com.elsys.safebanking.user;
+package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.dto.UpdateProfileRequest;
+import com.elsys.safebanking.dto.UserProfileResponse;
+import com.elsys.safebanking.service.UserService;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import org.springframework.web.bind.annotation.GetMapping;

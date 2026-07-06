@@ -1,5 +1,9 @@
-package com.elsys.safebanking.auth;
+package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.dto.AuthResponse;
+import com.elsys.safebanking.dto.LoginRequest;
+import com.elsys.safebanking.dto.RegisterRequest;
+import com.elsys.safebanking.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;

@@ -1,4 +1,4 @@
-package com.elsys.safebanking.auth;
+package com.elsys.safebanking.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

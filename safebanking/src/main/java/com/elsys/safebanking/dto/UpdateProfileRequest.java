@@ -1,4 +1,4 @@
-package com.elsys.safebanking.user;
+package com.elsys.safebanking.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

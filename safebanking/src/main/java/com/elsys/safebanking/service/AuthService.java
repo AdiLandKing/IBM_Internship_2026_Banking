@@ -1,10 +1,13 @@
-package com.elsys.safebanking.auth;
+package com.elsys.safebanking.service;
 
-import com.elsys.safebanking.security.JwtService;
-import com.elsys.safebanking.user.AppUser;
-import com.elsys.safebanking.user.UserProfileResponse;
-import com.elsys.safebanking.user.UserRepository;
-import com.elsys.safebanking.user.UserService;
+import com.elsys.safebanking.dto.AuthResponse;
+import com.elsys.safebanking.dto.LoginRequest;
+import com.elsys.safebanking.dto.RegisterRequest;
+import com.elsys.safebanking.dto.UserProfileResponse;
+import com.elsys.safebanking.exception.DuplicateEmailException;
+import com.elsys.safebanking.exception.InvalidCredentialsException;
+import com.elsys.safebanking.model.AppUser;
+import com.elsys.safebanking.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
