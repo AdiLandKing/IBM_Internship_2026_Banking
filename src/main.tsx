@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { LockKeyhole, Mail, Moon, Sun, UserPlus, X, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, ChartPie, Landmark, LockKeyhole, Mail, Moon, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import './styles.css';
 
 const stats = [
@@ -16,6 +17,69 @@ const recentTransactions = [
   { name: 'Zurich Custody Account', type: 'International transfer', amount: '-$86,000.00', date: 'Jun 28', status: 'Reviewed' },
   { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
 ];
+
+const holdings = [
+  { name: 'Global Equity Mandate', category: 'Equities', value: '$2.51M', allocation: '52%', change: '+3.1%' },
+  { name: 'Municipal Income Ladder', category: 'Fixed Income', value: '$1.35M', allocation: '28%', change: '+0.8%' },
+  { name: 'Private Alternatives Fund', category: 'Alternatives', value: '$964K', allocation: '20%', change: '+1.6%' },
+];
+
+const adminMetrics = [
+  { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
+  { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
+  { label: 'KYC Reviews', value: '7', detail: '3 high priority', icon: ShieldCheck },
+  { label: 'Managed Assets', value: '$2.4T', detail: 'Across 180 countries', icon: Landmark },
+];
+
+const clientQueue = [
+  { name: 'Hamilton Family Office', request: 'International transfer approval', priority: 'High', time: '12 min ago' },
+  { name: 'Mori Capital Trust', request: 'New portfolio mandate', priority: 'Medium', time: '41 min ago' },
+  { name: 'Ainsley Holdings', request: 'Profile verification', priority: 'Low', time: '2 hr ago' },
+  { name: 'Zurich Custody Account', request: 'Wire beneficiary review', priority: 'High', time: '3 hr ago' },
+];
+
+type AdminMenuId = 'pending' | 'users' | 'logs' | 'access';
+
+const adminMenus: { id: AdminMenuId; label: string; description: string; icon: LucideIcon }[] = [
+  { id: 'pending', label: 'Pending Transactions', description: 'Approve or reject queued transfers', icon: Wallet },
+  { id: 'users', label: 'Search Users', description: 'Find client profiles and roles', icon: Users },
+  { id: 'logs', label: 'Transfer Logs', description: 'Audit completed transfer activity', icon: Activity },
+  { id: 'access', label: 'User Access', description: 'Create users or grant admin access', icon: ShieldCheck },
+];
+
+const adminUsers = [
+  { name: 'Elena Hamilton', email: 'elena@hamilton-office.com', role: 'Client', status: 'Active', lastSeen: 'Today' },
+  { name: 'Marcus Mori', email: 'marcus@mori-capital.com', role: 'Client', status: 'Pending KYC', lastSeen: 'Yesterday' },
+  { name: 'Nadia Ainsley', email: 'nadia@ainsley.co', role: 'Advisor', status: 'Active', lastSeen: '12 min ago' },
+  { name: 'Theo Grant', email: 'theo.grant@safebank.com', role: 'Admin', status: 'Active', lastSeen: '3 min ago' },
+];
+
+const transferLogs = [
+  { id: 'TRF-90421', user: 'Hamilton Family Office', amount: '$48,250.00', type: 'Domestic wire', status: 'Completed', date: 'Jul 02, 2026' },
+  { id: 'TRF-90403', user: 'Zurich Custody Account', amount: '$86,000.00', type: 'International wire', status: 'Reviewed', date: 'Jun 28, 2026' },
+  { id: 'TRF-90377', user: 'SAFE Bank Reserve', amount: '$250,000.00', type: 'Internal transfer', status: 'Completed', date: 'Jun 25, 2026' },
+  { id: 'TRF-90312', user: 'Mori Capital Trust', amount: '$19,430.00', type: 'Portfolio funding', status: 'Flagged', date: 'Jun 22, 2026' },
+];
+
+const accessRequests = [
+  { name: 'Iris Kovan', email: 'iris.kovan@safebank.com', request: 'Admin approval', submitted: 'Today' },
+  { name: 'Victor Lane', email: 'victor@example.com', request: 'Client account creation', submitted: 'Yesterday' },
+  { name: 'Maya Chen', email: 'maya.chen@safebank.com', request: 'Advisor account creation', submitted: 'Jul 01, 2026' },
+];
+
+function getPageFromPath(pathname: string): PageMode {
+  if (pathname === '/admin') return 'admin';
+  if (pathname === '/portfolio') return 'portfolio';
+  if (pathname === '/transactions') return 'transactions';
+  return 'home';
+}
+
+function getPathFromPage(page: PageMode) {
+  if (page === 'admin') return '/admin';
+  if (page === 'portfolio') return '/portfolio';
+  if (page === 'transactions') return '/transactions';
+  return '/';
+}
 
 function Logo({ onClick }: { onClick?: () => void }) {
   return (
@@ -50,7 +114,7 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 }
 
 type AuthMode = 'login' | 'register';
-type PageMode = 'home' | 'transactions';
+type PageMode = 'home' | 'transactions' | 'portfolio' | 'admin';
 
 function Header({
   theme,
@@ -58,12 +122,14 @@ function Header({
   openAuth,
   showHome,
   showTransactions,
+  showPortfolio,
 }: {
   theme: 'dark' | 'light';
   toggleTheme: () => void;
   openAuth: (mode: AuthMode) => void;
   showHome: () => void;
   showTransactions: () => void;
+  showPortfolio: () => void;
 }) {
   const ThemeIcon = theme === 'dark' ? Moon : Sun;
 
@@ -77,10 +143,7 @@ function Header({
           </button>
           <button
             type="button"
-            onClick={() => {
-              showHome();
-              window.setTimeout(() => document.getElementById('portfolio')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
-            }}
+            onClick={showPortfolio}
             className="transition hover:text-[rgb(var(--text-strong))]"
           >
             Portfolio
@@ -162,7 +225,7 @@ function PortfolioCard() {
   );
 }
 
-function Hero({ showTransactions }: { showTransactions: () => void }) {
+function Hero({ showTransactions, showPortfolio }: { showTransactions: () => void; showPortfolio: () => void }) {
   return (
     <section className="pattern-bg relative flex min-h-screen items-start overflow-hidden px-6 pb-20 pt-32 sm:px-10 lg:items-center lg:pt-[72px]">
       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-[radial-gradient(circle_at_31%_78%,rgba(var(--hero-glow),0.55),transparent_34%)]" />
@@ -185,9 +248,13 @@ function Hero({ showTransactions }: { showTransactions: () => void }) {
             >
               Transfer
             </button>
-            <a href="#portfolio" className="rounded-md border border-[rgb(var(--button-line))] px-8 py-4 text-center text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]">
+            <button
+              type="button"
+              onClick={showPortfolio}
+              className="rounded-md border border-[rgb(var(--button-line))] px-8 py-4 text-center text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]"
+            >
               Portfolio
-            </a>
+            </button>
           </div>
         </div>
         <div className="flex justify-center lg:justify-end">
@@ -323,7 +390,345 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
   );
 }
 
-function Cta({ showTransactions }: { showTransactions: () => void }) {
+function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; showTransactions: () => void }) {
+  return (
+    <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
+      <div className="mx-auto max-w-[980px]">
+        <button
+          type="button"
+          onClick={showHome}
+          className="inline-flex items-center gap-2 text-sm font-bold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))]"
+        >
+          <ArrowLeft size={16} strokeWidth={1.8} />
+          Back to overview
+        </button>
+
+        <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_360px]">
+          <div>
+            <Eyebrow>Private Portfolio</Eyebrow>
+            <h1 className="mt-8 font-display text-[clamp(3rem,4vw,4.5rem)] font-semibold leading-[1.02] text-[rgb(var(--text-strong))]">
+              Portfolio
+              <br />
+              Command Center
+            </h1>
+            <p className="mt-7 max-w-[560px] text-lg leading-8 text-[rgb(var(--text-muted))]">
+              Review your allocation, performance, and holdings across the mandates managed by SAFE Bank advisors.
+            </p>
+            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              {[
+                ['Total Value', '$4,821,390.44'],
+                ['YTD Return', '+11.8%'],
+                ['Risk Profile', 'Balanced'],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
+                  <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
+                  <p className="mt-3 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault">
+            <div className="flex items-center justify-between border-b border-[rgb(var(--line))] pb-5">
+              <div>
+                <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Allocation</p>
+                <h2 className="mt-2 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Overview</h2>
+              </div>
+              <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+                <ChartPie size={21} strokeWidth={1.8} />
+              </div>
+            </div>
+            <div className="mt-6 space-y-5">
+              {holdings.map((holding) => (
+                <div key={holding.category}>
+                  <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                    <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
+                    <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[rgb(var(--line))]">
+                    <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocation }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-12 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6">
+          <div className="mb-6 flex flex-col justify-between gap-3 border-b border-[rgb(var(--line))] pb-5 sm:flex-row sm:items-center">
+            <div>
+              <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Holdings</p>
+              <h2 className="mt-2 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Managed Mandates</h2>
+            </div>
+            <button
+              type="button"
+              onClick={showTransactions}
+              className="rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]"
+            >
+              Transfer Funds
+            </button>
+          </div>
+          <div className="divide-y divide-[rgb(var(--line))]">
+            {holdings.map((holding) => (
+              <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+                <div>
+                  <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
+                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+                </div>
+                <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
+                <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
+                <span className="text-sm font-extrabold text-emerald-500">{holding.change}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminPage({ showHome }: { showHome: () => void }) {
+  const [activeMenu, setActiveMenu] = React.useState<AdminMenuId>('pending');
+  const activeMenuDetails = adminMenus.find((menu) => menu.id === activeMenu) ?? adminMenus[0];
+
+  return (
+    <section className="min-h-screen bg-[rgb(var(--page-bg))] px-6 pb-20 pt-28 sm:px-10 lg:pt-32">
+      <div className="mx-auto max-w-[1180px]">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div>
+            <button
+              type="button"
+              onClick={showHome}
+              className="inline-flex items-center gap-2 text-sm font-bold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))]"
+            >
+              <ArrowLeft size={16} strokeWidth={1.8} />
+              Back to website
+            </button>
+            <p className="mt-8 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Admin Console</p>
+            <h1 className="mt-3 font-display text-[clamp(2.8rem,4vw,4.6rem)] font-semibold leading-none text-[rgb(var(--text-strong))]">
+              Operations Dashboard
+            </h1>
+          </div>
+          <div className="flex max-w-[420px] items-center gap-3 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] px-4 py-3">
+            <Search size={17} className="text-[rgb(var(--text-muted))]" />
+            <input
+              className="w-full bg-transparent text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]"
+              placeholder="Search clients, transfers, reviews"
+            />
+            <Settings size={17} className="text-[rgb(var(--gold))]" />
+          </div>
+        </div>
+
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {adminMenus.map(({ id, label, description, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveMenu(id)}
+              className={`rounded-lg border p-5 text-left shadow-vault transition hover:-translate-y-0.5 ${
+                activeMenu === id
+                  ? 'border-[rgb(var(--gold))] bg-[rgb(var(--icon-bg))]'
+                  : 'border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] hover:border-[rgb(var(--gold))]/70'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.24em] text-[rgb(var(--gold))]">
+                    Menu
+                  </p>
+                  <p className="mt-3 font-display text-2xl font-bold leading-none text-[rgb(var(--text-strong))]">{label}</p>
+                </div>
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[rgb(var(--gold))]/30 bg-[rgb(var(--page-bg))] text-[rgb(var(--gold))]">
+                  <Icon size={18} strokeWidth={1.8} />
+                </div>
+              </div>
+              <p className="mt-4 text-sm font-semibold leading-6 text-[rgb(var(--text-muted))]">{description}</p>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-8 grid gap-8 lg:grid-cols-[260px_1fr]">
+          <aside className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-3">
+            <div className="px-3 py-3">
+              <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.28em] text-[rgb(var(--gold))]">Admin Menus</p>
+            </div>
+            <div className="grid gap-2">
+              {adminMenus.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveMenu(id)}
+                  className={`flex items-center gap-3 rounded-md px-3 py-3 text-left text-sm font-extrabold transition ${
+                    activeMenu === id
+                      ? 'bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))]'
+                      : 'text-[rgb(var(--text-muted))] hover:bg-[rgb(var(--page-bg))] hover:text-[rgb(var(--text-strong))]'
+                  }`}
+                >
+                  <Icon size={17} strokeWidth={1.8} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6">
+            <div className="mb-6 flex flex-col justify-between gap-4 border-b border-[rgb(var(--line))] pb-5 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Selected Menu</p>
+                <h2 className="mt-2 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">{activeMenuDetails.label}</h2>
+                <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{activeMenuDetails.description}</p>
+              </div>
+              <span className="rounded-full bg-[rgb(var(--icon-bg))] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-[rgb(var(--gold))]">
+                Frontend Demo
+              </span>
+            </div>
+
+            {activeMenu === 'pending' && (
+              <div className="divide-y divide-[rgb(var(--line))]">
+                {clientQueue.map((item) => (
+                  <div key={`${item.name}-${item.request}`} className="grid gap-4 py-4 xl:grid-cols-[1fr_auto_auto] xl:items-center">
+                    <div>
+                      <p className="font-bold text-[rgb(var(--text-strong))]">{item.name}</p>
+                      <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{item.request} · {item.time}</p>
+                    </div>
+                    <span
+                      className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${
+                        item.priority === 'High'
+                          ? 'bg-red-500/15 text-red-500'
+                          : item.priority === 'Medium'
+                            ? 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]'
+                            : 'bg-emerald-500/15 text-emerald-500'
+                      }`}
+                    >
+                      {item.priority}
+                    </span>
+                    <div className="flex gap-2">
+                      <button type="button" className="rounded-md bg-[rgb(var(--gold))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--gold-ink))]">
+                        Approve
+                      </button>
+                      <button type="button" className="rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))]">
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeMenu === 'users' && (
+              <div>
+                <label className="mb-5 block">
+                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
+                  <input
+                    className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                    placeholder="Search by name, email, role, or status"
+                  />
+                </label>
+                <div className="divide-y divide-[rgb(var(--line))]">
+                  {adminUsers.map((user) => (
+                    <div key={user.email} className="grid gap-3 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+                      <div>
+                        <p className="font-bold text-[rgb(var(--text-strong))]">{user.name}</p>
+                        <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{user.email} · Last seen {user.lastSeen}</p>
+                      </div>
+                      <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
+                      <span className="w-fit rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-500">
+                        {user.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeMenu === 'logs' && (
+              <div>
+                <div className="mb-5 grid gap-3 sm:grid-cols-3">
+                  <input className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="Transfer ID" />
+                  <input className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="User or account" />
+                  <select className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
+                    <option>All statuses</option>
+                    <option>Completed</option>
+                    <option>Reviewed</option>
+                    <option>Flagged</option>
+                  </select>
+                </div>
+                <div className="divide-y divide-[rgb(var(--line))]">
+                  {transferLogs.map((log) => (
+                    <div key={log.id} className="grid gap-3 py-4 xl:grid-cols-[0.7fr_1fr_auto_auto] xl:items-center">
+                      <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">{log.id}</span>
+                      <div>
+                        <p className="font-bold text-[rgb(var(--text-strong))]">{log.user}</p>
+                        <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{log.type} · {log.date}</p>
+                      </div>
+                      <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{log.amount}</span>
+                      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${log.status === 'Flagged' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                        {log.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeMenu === 'access' && (
+              <div className="grid gap-6 xl:grid-cols-[1fr_0.85fr]">
+                <div>
+                  <p className="mb-4 text-sm font-extrabold text-[rgb(var(--text-strong))]">Pending Access Requests</p>
+                  <div className="divide-y divide-[rgb(var(--line))]">
+                    {accessRequests.map((request) => (
+                      <div key={request.email} className="grid gap-3 py-4">
+                        <div>
+                          <p className="font-bold text-[rgb(var(--text-strong))]">{request.name}</p>
+                          <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{request.email} · {request.request} · {request.submitted}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" className="rounded-md bg-[rgb(var(--gold))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--gold-ink))]">
+                            Approve Admin
+                          </button>
+                          <button type="button" className="rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))]">
+                            Create User
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <form className="rounded-lg border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-5" onSubmit={(event) => event.preventDefault()}>
+                  <p className="font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">Create Website User</p>
+                  <div className="mt-5 grid gap-4">
+                    <label>
+                      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Full Name</span>
+                      <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--card-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]" placeholder="Client name" />
+                    </label>
+                    <label>
+                      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Email</span>
+                      <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--card-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]" placeholder="client@example.com" />
+                    </label>
+                    <label>
+                      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Role</span>
+                      <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--card-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
+                        <option>Client</option>
+                        <option>Advisor</option>
+                        <option>Admin</option>
+                      </select>
+                    </label>
+                    <button type="submit" className="rounded-md bg-[rgb(var(--gold))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold">
+                      Create User
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Cta({ showTransactions, showPortfolio }: { showTransactions: () => void; showPortfolio: () => void }) {
   return (
     <section id="contact" className="pattern-bg border-t border-[rgb(var(--line))] px-6 py-32 text-center sm:px-10 lg:px-12">
       <div className="mx-auto max-w-[720px]">
@@ -344,9 +749,13 @@ function Cta({ showTransactions }: { showTransactions: () => void }) {
           >
             Transfer Funds
           </button>
-          <a href="#portfolio" className="rounded-md border border-[rgb(var(--button-line))] px-9 py-4 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]">
+          <button
+            type="button"
+            onClick={showPortfolio}
+            className="rounded-md border border-[rgb(var(--button-line))] px-9 py-4 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]"
+          >
             Portfolio
-          </a>
+          </button>
         </div>
         <p className="mt-8 text-sm font-semibold text-[rgb(var(--text-muted))]">
           By invitation and introduction · FDIC insured · Serving families since 1847
@@ -581,27 +990,49 @@ function App() {
   });
   const [authMode, setAuthMode] = React.useState<AuthMode>('login');
   const [isAuthOpen, setIsAuthOpen] = React.useState(false);
-  const [page, setPage] = React.useState<PageMode>('home');
+  const [page, setPage] = React.useState<PageMode>(() => {
+    if (typeof window === 'undefined') return 'home';
+    return getPageFromPath(window.location.pathname);
+  });
 
   const openAuth = React.useCallback((mode: AuthMode) => {
     setAuthMode(mode);
     setIsAuthOpen(true);
   }, []);
 
-  const showHome = React.useCallback(() => {
-    setPage('home');
+  const navigateTo = React.useCallback((nextPage: PageMode) => {
+    const nextPath = getPathFromPage(nextPage);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+    setPage(nextPage);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  const showHome = React.useCallback(() => navigateTo('home'), [navigateTo]);
+
   const showTransactions = React.useCallback(() => {
-    setPage('transactions');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+    navigateTo('transactions');
+  }, [navigateTo]);
+
+  const showPortfolio = React.useCallback(() => {
+    navigateTo('portfolio');
+  }, [navigateTo]);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('nexvault-theme', theme);
   }, [theme]);
+
+  React.useEffect(() => {
+    const handlePopState = () => {
+      setPage(getPageFromPath(window.location.pathname));
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   return (
     <>
@@ -611,17 +1042,19 @@ function App() {
         openAuth={openAuth}
         showHome={showHome}
         showTransactions={showTransactions}
+        showPortfolio={showPortfolio}
       />
       <main>
-        {page === 'home' ? (
+        {page === 'home' && (
           <>
-            <Hero showTransactions={showTransactions} />
+            <Hero showTransactions={showTransactions} showPortfolio={showPortfolio} />
             <StatsBand />
-            <Cta showTransactions={showTransactions} />
+            <Cta showTransactions={showTransactions} showPortfolio={showPortfolio} />
           </>
-        ) : (
-          <TransactionsPage showHome={showHome} />
         )}
+        {page === 'transactions' && <TransactionsPage showHome={showHome} />}
+        {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'admin' && <AdminPage showHome={showHome} />}
       </main>
       {page === 'home' && <Footer />}
       <AuthPopup
