@@ -1,10 +1,6 @@
 name: CI
 
 on:
-  push:
-    paths:
-      - 'safebanking/**'
-      - '.github/workflows/ci.yml'
   pull_request:
     branches:
       - main
@@ -15,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -67,6 +64,6 @@ jobs:
         if: always()
         with:
           name: Maven Tests
-          path: target/surefire-reports/*.xml
+          path: safebanking/target/surefire-reports/*.xml
           reporter: java-junit
           fail-on-error: true
