@@ -24,3 +24,11 @@ hs_err_pid*
 replay_pid*
 
 src/main/resources/application.properties
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Local env
+.env
+.env.*
