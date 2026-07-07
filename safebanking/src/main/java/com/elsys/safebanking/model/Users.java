@@ -11,10 +11,12 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import lombok.Getter;
 
+@Getter
 @Entity
 @Table(name = "users")
-public class AppUser {
+public class Users {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -42,14 +44,14 @@ public class AppUser {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    protected AppUser() {
+    protected Users() {
     }
 
-    public AppUser(String email, String passwordHash, String firstName, String lastName) {
+    public Users(String email, String passwordHash, String firstName, String lastName) {
         this(email, passwordHash, firstName, lastName, UserRole.USER);
     }
 
-    public AppUser(String email, String passwordHash, String firstName, String lastName, UserRole role) {
+    public Users(String email, String passwordHash, String firstName, String lastName, UserRole role) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.firstName = firstName;
@@ -67,38 +69,6 @@ public class AppUser {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
-    }
-
-    public String getFirstName() {
-        return firstName;
-    }
-
-    public String getLastName() {
-        return lastName;
-    }
-
-    public UserRole getRole() {
-        return role;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 
     public void updateProfile(String firstName, String lastName) {

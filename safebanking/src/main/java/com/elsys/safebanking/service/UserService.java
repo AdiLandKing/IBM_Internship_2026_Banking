@@ -2,7 +2,7 @@ package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
-import com.elsys.safebanking.model.AppUser;
+import com.elsys.safebanking.model.Users;
 import com.elsys.safebanking.repository.UserRepository;
 import java.util.Locale;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -19,14 +19,14 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public AppUser getByEmail(String email) {
+    public Users getByEmail(String email) {
         return userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
     }
 
     @Transactional
     public UserProfileResponse updateProfile(String email, UpdateProfileRequest request) {
-        AppUser user = getByEmail(email);
+        Users user = getByEmail(email);
         user.updateProfile(request.firstName().trim(), request.lastName().trim());
         return UserProfileResponse.from(user);
     }

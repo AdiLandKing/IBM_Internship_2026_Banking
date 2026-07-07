@@ -1,8 +1,13 @@
 package com.elsys.safebanking.service;
 
-import com.elsys.safebanking.model.AppUser;
 import com.elsys.safebanking.model.UserRole;
+import com.elsys.safebanking.model.Users;
 import com.elsys.safebanking.repository.UserRepository;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +21,7 @@ import org.springframework.util.StringUtils;
 public class AdminAccountSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(AdminAccountSeeder.class);
+    private static final DateTimeFormatter AUDIT_TIME_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -52,7 +58,11 @@ public class AdminAccountSeeder implements CommandLineRunner {
                 user -> {
                     if (user.getRole() != UserRole.ADMIN) {
                         user.updateRole(UserRole.ADMIN);
-                        log.info("Promoted existing user {} to ADMIN", normalizedEmail);
+                        log.info(
+                                "Admin seed audit action=promote-admin result=success email={} {}",
+                                normalizedEmail,
+                                auditContext()
+                        );
                     }
                 },
                 () -> createAdmin(normalizedEmail)
@@ -61,17 +71,47 @@ public class AdminAccountSeeder implements CommandLineRunner {
 
     private void createAdmin(String normalizedEmail) {
         if (!StringUtils.hasText(adminPassword) || adminPassword.length() < 8) {
-            log.warn("Skipping admin seed for {} because app.admin.password is missing or shorter than 8 characters", normalizedEmail);
+            log.warn(
+                    "Admin seed audit action=create-admin result=skipped reason=missing-or-short-password email={} {}",
+                    normalizedEmail,
+                    auditContext()
+            );
             return;
         }
 
-        userRepository.save(new AppUser(
+        userRepository.save(new Users(
                 normalizedEmail,
                 passwordEncoder.encode(adminPassword),
                 StringUtils.hasText(adminFirstName) ? adminFirstName.trim() : "Admin",
                 StringUtils.hasText(adminLastName) ? adminLastName.trim() : "User",
                 UserRole.ADMIN
         ));
-        log.info("Seeded admin account {}", normalizedEmail);
+        log.info(
+                "Admin seed audit action=create-admin result=success email={} {}",
+                normalizedEmail,
+                auditContext()
+        );
+    }
+
+    private String auditContext() {
+        HostAuditInfo hostAuditInfo = resolveHostAuditInfo();
+        return "timestampUtc=%s hostName=%s hostAddress=%s"
+                .formatted(
+                        AUDIT_TIME_FORMATTER.format(OffsetDateTime.now(ZoneOffset.UTC)),
+                        hostAuditInfo.hostName(),
+                        hostAuditInfo.hostAddress()
+                );
+    }
+
+    private HostAuditInfo resolveHostAuditInfo() {
+        try {
+            InetAddress localHost = InetAddress.getLocalHost();
+            return new HostAuditInfo(localHost.getHostName(), localHost.getHostAddress());
+        } catch (UnknownHostException exception) {
+            return new HostAuditInfo("unknown", "unknown");
+        }
+    }
+
+    private record HostAuditInfo(String hostName, String hostAddress) {
     }
 }

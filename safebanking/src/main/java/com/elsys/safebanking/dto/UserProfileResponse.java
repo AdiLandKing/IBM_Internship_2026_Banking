@@ -1,6 +1,6 @@
 package com.elsys.safebanking.dto;
 
-import com.elsys.safebanking.model.AppUser;
+import com.elsys.safebanking.model.Users;
 import java.time.Instant;
 
 public record UserProfileResponse(
@@ -11,7 +11,7 @@ public record UserProfileResponse(
         String role,
         Instant createdAt
 ) {
-    public static UserProfileResponse from(AppUser user) {
+    public static UserProfileResponse from(Users user) {
         return new UserProfileResponse(
                 user.getId(),
                 user.getEmail(),
