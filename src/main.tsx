@@ -347,11 +347,11 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
                   <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="$0.00" />
                 </label>
                 <label>
-                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Transfer Type</span>
+                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Currency</span>
                   <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                    <option>Domestic wire</option>
-                    <option>Internal transfer</option>
-                    <option>International wire</option>
+                    <option>Euro</option>
+                    <option>USD</option>
+                    <option>Pound</option>
                   </select>
                 </label>
               </div>
