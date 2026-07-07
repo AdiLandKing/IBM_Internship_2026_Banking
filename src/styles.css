@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  --page-bg: 13 16 13;
+  --nav-bg: 12 15 13;
+  --footer-bg: 12 15 13;
+  --stat-bg: 15 16 23;
+  --float-bg: 23 23 45;
+  --card-bg: 25 25 42;
+  --card-line: 55 52 76;
+  --service-featured: 18 18 24;
+  --service-hover: 21 21 26;
+  --icon-bg: 48 42 21;
+  --line: 38 38 31;
+  --line-strong: 63 56 46;
+  --grid-line: 49 45 27;
+  --button-line: 83 69 40;
+  --text-strong: 243 241 234;
+  --text-muted: 139 139 135;
+  --gold: 197 161 85;
+  --gold-soft: 233 205 136;
+  --gold-ink: 39 34 20;
+  --logo-core: 126 100 41;
+  --pattern-line: 255 255 255;
+  --pattern-alpha: 0.055;
+  --hero-glow: 20 24 71;
+  background: rgb(var(--page-bg));
+  color: rgb(var(--text-strong));
+}
+
+:root[data-theme='light'] {
+  --page-bg: 250 252 246;
+  --nav-bg: 250 252 246;
+  --footer-bg: 249 251 245;
+  --stat-bg: 250 251 248;
+  --float-bg: 255 255 255;
+  --card-bg: 255 255 255;
+  --card-line: 229 229 222;
+  --service-featured: 242 244 248;
+  --service-hover: 245 247 242;
+  --icon-bg: 250 247 235;
+  --line: 226 228 220;
+  --line-strong: 231 227 215;
+  --grid-line: 224 226 217;
+  --button-line: 226 216 188;
+  --text-strong: 24 25 21;
+  --text-muted: 136 139 134;
+  --gold: 197 161 85;
+  --gold-soft: 232 199 119;
+  --gold-ink: 255 255 249;
+  --logo-core: 126 100 41;
+  --pattern-line: 54 71 50;
+  --pattern-alpha: 0.055;
+  --hero-glow: 232 224 202;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: rgb(var(--page-bg));
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pattern-bg {
+  background-color: rgb(var(--page-bg));
+  background-image:
+    linear-gradient(45deg, rgba(var(--pattern-line), var(--pattern-alpha)) 1px, transparent 1px),
+    linear-gradient(-45deg, rgba(var(--pattern-line), var(--pattern-alpha)) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+@media (max-width: 768px) {
+  .pattern-bg {
+    background-size: 42px 42px;
+  }
+}
