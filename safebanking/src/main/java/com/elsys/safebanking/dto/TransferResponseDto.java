@@ -1,4 +1,4 @@
-package com.elsys.safebanking.modules.transaction.dto;
+package com.elsys.safebanking.dto;
 
 public record TransferResponseDto(
         Long transactionId,

@@ -1,8 +1,8 @@
-package com.elsys.safebanking.modules.transaction.controller;
+package com.elsys.safebanking.controller;
 
-import com.elsys.safebanking.modules.transaction.dto.TransferRequestDto;
-import com.elsys.safebanking.modules.transaction.dto.TransferResponseDto;
-import com.elsys.safebanking.modules.transaction.service.TransferService;
+import com.elsys.safebanking.dto.TransferRequestDto;
+import com.elsys.safebanking.dto.TransferResponseDto;
+import com.elsys.safebanking.service.TransferService;
 import com.elsys.safebanking.routes.ApiRoutes;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;

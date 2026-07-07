@@ -1,6 +1,6 @@
-package com.elsys.safebanking.modules.transaction.repository;
+package com.elsys.safebanking.repository;
 
-import com.elsys.safebanking.modules.transaction.entity.BankingTransaction;
+import com.elsys.safebanking.model.BankingTransaction;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface BankingTransactionRepository extends JpaRepository<BankingTransaction, Long> {

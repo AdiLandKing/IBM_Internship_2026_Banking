@@ -1,8 +1,7 @@
-package com.elsys.safebanking.modules.transaction.service.impl;
+package com.elsys.safebanking.service;
 
-import com.elsys.safebanking.modules.transaction.dto.TransferRequestDto;
-import com.elsys.safebanking.modules.transaction.dto.TransferResponseDto;
-import com.elsys.safebanking.modules.transaction.service.TransferService;
+import com.elsys.safebanking.dto.TransferRequestDto;
+import com.elsys.safebanking.dto.TransferResponseDto;
 import org.springframework.stereotype.Service;
 
 @Service
