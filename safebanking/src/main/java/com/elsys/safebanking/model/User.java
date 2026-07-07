@@ -11,12 +11,13 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+
 import lombok.Getter;
 
 @Getter
 @Entity
 @Table(name = "users")
-public class Users {
+public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,14 +45,14 @@ public class Users {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    protected Users() {
+    protected User() {
     }
 
-    public Users(String email, String passwordHash, String firstName, String lastName) {
+    public User(String email, String passwordHash, String firstName, String lastName) {
         this(email, passwordHash, firstName, lastName, UserRole.USER);
     }
 
-    public Users(String email, String passwordHash, String firstName, String lastName, UserRole role) {
+    public User(String email, String passwordHash, String firstName, String lastName, UserRole role) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.firstName = firstName;

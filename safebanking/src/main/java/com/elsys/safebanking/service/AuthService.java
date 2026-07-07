@@ -6,7 +6,7 @@ import com.elsys.safebanking.dto.RegisterRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
 import com.elsys.safebanking.exception.DuplicateEmailException;
 import com.elsys.safebanking.exception.InvalidCredentialsException;
-import com.elsys.safebanking.model.Users;
+import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -37,7 +37,7 @@ public class AuthService {
             throw new DuplicateEmailException("An account with this email already exists");
         }
 
-        Users user = userRepository.save(new Users(
+        User user = userRepository.save(new User(
                 email,
                 passwordEncoder.encode(request.password()),
                 request.firstName().trim(),
@@ -50,7 +50,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         String email = UserService.normalizeEmail(request.email());
-        Users user = userRepository.findByEmailIgnoreCase(email)
+        User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password"));
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -60,7 +60,7 @@ public class AuthService {
         return createAuthResponse(user);
     }
 
-    private AuthResponse createAuthResponse(Users user) {
+    private AuthResponse createAuthResponse(User user) {
         String token = jwtService.createToken(user.getEmail());
         return new AuthResponse(
                 "Bearer",

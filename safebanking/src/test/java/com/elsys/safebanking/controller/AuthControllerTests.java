@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.elsys.safebanking.model.Users;
+import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.model.UserRole;
 import com.elsys.safebanking.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -152,7 +152,7 @@ class AuthControllerTests {
 
     @Test
     void adminUserCanAccessAdminSession() throws Exception {
-        userRepository.save(new Users(
+        userRepository.save(new User(
                 "admin@example.com",
                 passwordEncoder.encode("adminPassword123"),
                 "Admin",

@@ -1,7 +1,7 @@
 package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.model.UserRole;
-import com.elsys.safebanking.model.Users;
+import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.UserRepository;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -29,6 +29,8 @@ public class AdminAccountSeeder implements CommandLineRunner {
     private final String adminPassword;
     private final String adminFirstName;
     private final String adminLastName;
+    private final HostAuditInfo hostAuditInfo;
+
 
     public AdminAccountSeeder(
             UserRepository userRepository,
@@ -44,6 +46,7 @@ public class AdminAccountSeeder implements CommandLineRunner {
         this.adminPassword = adminPassword;
         this.adminFirstName = adminFirstName;
         this.adminLastName = adminLastName;
+        this.hostAuditInfo = resolveHostAuditInfo();
     }
 
     @Override
@@ -79,7 +82,7 @@ public class AdminAccountSeeder implements CommandLineRunner {
             return;
         }
 
-        userRepository.save(new Users(
+        userRepository.save(new User(
                 normalizedEmail,
                 passwordEncoder.encode(adminPassword),
                 StringUtils.hasText(adminFirstName) ? adminFirstName.trim() : "Admin",
@@ -94,7 +97,6 @@ public class AdminAccountSeeder implements CommandLineRunner {
     }
 
     private String auditContext() {
-        HostAuditInfo hostAuditInfo = resolveHostAuditInfo();
         return "timestampUtc=%s hostName=%s hostAddress=%s"
                 .formatted(
                         AUDIT_TIME_FORMATTER.format(OffsetDateTime.now(ZoneOffset.UTC)),
