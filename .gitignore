@@ -25,7 +25,7 @@ target/
 !**/src/test/**/target/
 
 # ----------------------------------------------
-# IDE — Spring Tool Suite
+# IDE ï¿½ Spring Tool Suite
 # ----------------------------------------------
 .apt_generated
 .classpath
@@ -36,7 +36,7 @@ target/
 .sts4-cache
 
 # ----------------------------------------------
-# IDE — IntelliJ IDEA
+# IDE ï¿½ IntelliJ IDEA
 # ----------------------------------------------
 .idea
 *.iws
@@ -44,7 +44,7 @@ target/
 *.ipr
 
 # ----------------------------------------------
-# IDE — NetBeans
+# IDE ï¿½ NetBeans
 # ----------------------------------------------
 /nbproject/private/
 /nbbuild/
@@ -56,7 +56,7 @@ build/
 !**/src/test/**/build/
 
 # ----------------------------------------------
-# IDE — VS Code
+# IDE ï¿½ VS Code
 # ----------------------------------------------
 .vscode/
 
@@ -69,3 +69,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# ----------------------------------------------
+# Spring Boot config
+# ----------------------------------------------
+application.properties
+application*.properties
+application*.yml
