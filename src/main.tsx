@@ -424,7 +424,7 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault">
+          <div className="flex min-h-[690px] flex-col rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault">
             <div className="flex items-center justify-between border-b border-[rgb(var(--line))] pb-5">
               <div>
                 <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">New Transfer</p>
@@ -435,7 +435,7 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
               </div>
             </div>
 
-            <form className="mt-6 grid gap-4" onSubmit={(event) => event.preventDefault()}>
+            <form className="mt-6 flex flex-1 flex-col gap-4" onSubmit={(event) => event.preventDefault()}>
               <label>
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">From Account</span>
                 <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
@@ -461,6 +461,13 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
                   </select>
                 </label>
               </div>
+              <label className="flex flex-1 flex-col">
+                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Reason</span>
+                <textarea
+                  className="min-h-[150px] flex-1 resize-none rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold leading-6 text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                  placeholder="Payment reference or transfer purpose"
+                />
+              </label>
               <button className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5" type="submit">
                 Review Transfer
               </button>
