@@ -1034,7 +1034,7 @@ function AuthPopup({
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get('email') ?? '').trim();
     const password = String(formData.get('password') ?? '');
-    const payload = isLogin
+    const payload: Record<string, string> = isLogin
       ? { email, password }
       : {
           email,

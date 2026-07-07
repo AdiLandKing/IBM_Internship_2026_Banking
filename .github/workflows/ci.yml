@@ -1,12 +1,14 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - develop
   pull_request:
     branches:
       - main
-    paths:
-      - 'safebanking/**'
-      - '.github/workflows/ci.yml'
+      - develop
   workflow_dispatch:
 
 permissions:
@@ -18,11 +20,78 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  maven-verify:
-    name: Maven Verify
+  frontend:
+    name: Frontend Verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Detect frontend scripts
+        id: frontend-scripts
+        shell: bash
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const scripts = require('./package.json').scripts || {};
+          const hasScript = (name) => Boolean(scripts[name]);
+
+          console.log(`lint=${hasScript('lint')}`);
+          console.log(`format_check=${hasScript('format:check')}`);
+          console.log(`typecheck=${hasScript('typecheck')}`);
+          console.log(`test=${hasScript('test')}`);
+          NODE
+
+      - name: Lint
+        if: steps.frontend-scripts.outputs.lint == 'true'
+        run: pnpm run lint
+
+      - name: Prettier check
+        if: steps.frontend-scripts.outputs.format_check == 'true'
+        run: pnpm run format:check
+
+      - name: TypeScript type check
+        run: |
+          if [ "${{ steps.frontend-scripts.outputs.typecheck }}" = "true" ]; then
+            pnpm run typecheck
+          else
+            pnpm exec tsc --noEmit --ignoreDeprecations 6.0
+          fi
+
+      - name: Frontend tests
+        if: steps.frontend-scripts.outputs.test == 'true'
+        run: pnpm test
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static
+          path: safebanking/src/main/resources/static/
+          if-no-files-found: error
+
+  backend:
+    name: Backend Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: safebanking
@@ -42,28 +111,30 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Verify
-        run: ./mvnw -B -ntp verify
+      - name: Verify backend
+        run: ./mvnw -B -ntp clean verify
 
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: surefire-reports
-          path: safebanking/target/surefire-reports/
-
-      - name: Upload application jar
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: safebanking-jar
-          path: safebanking/target/*.jar
-
-      - name: Report
+      - name: Publish test report
         uses: dorny/test-reporter@v1
         if: always()
         with:
-          name: Maven Tests
+          name: Backend JUnit Tests
           path: safebanking/target/surefire-reports/*.xml
           reporter: java-junit
           fail-on-error: true
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-surefire-reports
+          path: safebanking/target/surefire-reports/
+          if-no-files-found: ignore
+
+      - name: Upload application jar
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: safebanking-jar
+          path: safebanking/target/*.jar
+          if-no-files-found: error
