@@ -8,6 +8,7 @@ public record UserProfileResponse(
         String email,
         String firstName,
         String lastName,
+        String role,
         Instant createdAt
 ) {
     public static UserProfileResponse from(AppUser user) {
@@ -16,6 +17,7 @@ public record UserProfileResponse(
                 user.getEmail(),
                 user.getFirstName(),
                 user.getLastName(),
+                user.getRole().name(),
                 user.getCreatedAt()
         );
     }

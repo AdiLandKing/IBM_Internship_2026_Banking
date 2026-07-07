@@ -116,10 +116,89 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 type AuthMode = 'login' | 'register';
 type PageMode = 'home' | 'transactions' | 'portfolio' | 'admin';
 
+const DEFAULT_API_BASE_URL = typeof window !== 'undefined' && window.location.port !== '5173'
+  ? window.location.origin
+  : 'http://127.0.0.1:8080';
+const API_BASE_URL = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, '');
+const AUTH_STORAGE_KEY = 'safe-bank-auth-session';
+
+type UserProfile = {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'USER' | 'ADMIN';
+  createdAt: string;
+};
+
+type AuthSession = {
+  tokenType: string;
+  accessToken: string;
+  expiresInSeconds: number;
+  user: UserProfile;
+};
+
+type ApiErrorResponse = {
+  message?: string;
+  fieldErrors?: Record<string, string>;
+};
+
+async function authenticate(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let apiError: ApiErrorResponse | null = null;
+
+    try {
+      apiError = await response.json();
+    } catch {
+      apiError = null;
+    }
+
+    const fieldError = apiError?.fieldErrors ? Object.values(apiError.fieldErrors)[0] : undefined;
+    throw new Error(fieldError ?? apiError?.message ?? 'Authentication failed. Please try again.');
+  }
+
+  return response.json();
+}
+
+async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
+    headers: {
+      Authorization: `${authSession.tokenType} ${authSession.accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Admin access denied');
+  }
+
+  return response.json();
+}
+
+function readStoredAuthSession(): AuthSession | null {
+  try {
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+    return stored ? JSON.parse(stored) as AuthSession : null;
+  } catch {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return null;
+  }
+}
+
 function Header({
   theme,
   toggleTheme,
   openAuth,
+  authSession,
+  onLogout,
+  showAdmin,
   showHome,
   showTransactions,
   showPortfolio,
@@ -127,6 +206,9 @@ function Header({
   theme: 'dark' | 'light';
   toggleTheme: () => void;
   openAuth: (mode: AuthMode) => void;
+  authSession: AuthSession | null;
+  onLogout: () => void;
+  showAdmin: () => void;
   showHome: () => void;
   showTransactions: () => void;
   showPortfolio: () => void;
@@ -148,6 +230,15 @@ function Header({
           >
             Portfolio
           </button>
+          {authSession?.user.role === 'ADMIN' && (
+            <button
+              type="button"
+              onClick={showAdmin}
+              className="transition hover:text-[rgb(var(--text-strong))]"
+            >
+              Admin
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -160,19 +251,34 @@ function Header({
           </button>
         </div>
         <div className="flex items-center gap-5">
+          {authSession ? (
+            <div className="hidden items-center gap-3 sm:flex">
+              <span className="text-sm font-semibold text-[rgb(var(--text-muted))]">
+                {authSession.user.firstName} {authSession.user.lastName}
+              </span>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="text-sm font-semibold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))]"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openAuth('login')}
+              className="hidden text-sm font-semibold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))] sm:inline"
+            >
+              Client Login
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => openAuth('login')}
-            className="hidden text-sm font-semibold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))] sm:inline"
-          >
-            Client Login
-          </button>
-          <button
-            type="button"
-            onClick={() => openAuth('register')}
+            onClick={() => authSession ? showPortfolio() : openAuth('register')}
             className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-bold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 hover:brightness-105"
           >
-            Inquire
+            {authSession ? 'Portfolio' : 'Inquire'}
           </button>
         </div>
       </nav>
@@ -728,6 +834,117 @@ function AdminPage({ showHome }: { showHome: () => void }) {
   );
 }
 
+function AdminAccessGate({
+  authSession,
+  openAuth,
+  showHome,
+}: {
+  authSession: AuthSession | null;
+  openAuth: (mode: AuthMode) => void;
+  showHome: () => void;
+}) {
+  const isLoggedIn = Boolean(authSession);
+
+  return (
+    <section className="pattern-bg flex min-h-screen items-center px-6 py-28 sm:px-10">
+      <div className="mx-auto w-full max-w-[620px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-8 text-center shadow-vault">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <ShieldCheck size={24} strokeWidth={1.8} />
+        </div>
+        <p className="mt-7 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">
+          Admin Access Required
+        </p>
+        <h1 className="mt-4 font-display text-[clamp(2.7rem,4vw,4rem)] font-semibold leading-none text-[rgb(var(--text-strong))]">
+          {isLoggedIn ? 'Admin Role Required' : 'Login Required'}
+        </h1>
+        <p className="mx-auto mt-6 max-w-[500px] text-base leading-7 text-[rgb(var(--text-muted))]">
+          {isLoggedIn
+            ? 'Your account is signed in, but it does not have admin permissions for this panel.'
+            : 'Sign in with an admin account to access operational tools, user search, transfer logs, and admin approvals.'}
+        </p>
+        <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+          {!isLoggedIn && (
+            <button
+              type="button"
+              onClick={() => openAuth('login')}
+              className="rounded-md bg-[rgb(var(--gold))] px-7 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+            >
+              Admin Login
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={showHome}
+            className="rounded-md border border-[rgb(var(--button-line))] px-7 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]"
+          >
+            Back to Website
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminRoute({
+  authSession,
+  openAuth,
+  showHome,
+}: {
+  authSession: AuthSession | null;
+  openAuth: (mode: AuthMode) => void;
+  showHome: () => void;
+}) {
+  const [isChecking, setIsChecking] = React.useState(Boolean(authSession));
+  const [isAllowed, setIsAllowed] = React.useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    if (!authSession) {
+      setIsChecking(false);
+      setIsAllowed(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsChecking(true);
+    verifyAdminSession(authSession)
+      .then(() => {
+        if (isMounted) setIsAllowed(true);
+      })
+      .catch(() => {
+        if (isMounted) setIsAllowed(false);
+      })
+      .finally(() => {
+        if (isMounted) setIsChecking(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authSession]);
+
+  if (isChecking) {
+    return (
+      <section className="pattern-bg flex min-h-screen items-center justify-center px-6 py-28 text-center sm:px-10">
+        <div>
+          <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Admin Console</p>
+          <h1 className="mt-4 font-display text-[clamp(2.7rem,4vw,4rem)] font-semibold leading-none text-[rgb(var(--text-strong))]">
+            Verifying Access
+          </h1>
+        </div>
+      </section>
+    );
+  }
+
+  if (!isAllowed) {
+    return <AdminAccessGate authSession={authSession} openAuth={openAuth} showHome={showHome} />;
+  }
+
+  return <AdminPage showHome={showHome} />;
+}
+
 function Cta({ showTransactions, showPortfolio }: { showTransactions: () => void; showPortfolio: () => void }) {
   return (
     <section id="contact" className="pattern-bg border-t border-[rgb(var(--line))] px-6 py-32 text-center sm:px-10 lg:px-12">
@@ -770,12 +987,18 @@ function AuthPopup({
   isOpen,
   onClose,
   onModeChange,
+  onAuthenticated,
 }: {
   mode: AuthMode;
   isOpen: boolean;
   onClose: () => void;
   onModeChange: (mode: AuthMode) => void;
+  onAuthenticated: (session: AuthSession) => void;
 }) {
+  const [error, setError] = React.useState('');
+  const [success, setSuccess] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
   React.useEffect(() => {
     if (!isOpen) return;
 
@@ -792,9 +1015,45 @@ function AuthPopup({
     };
   }, [isOpen, onClose]);
 
+  React.useEffect(() => {
+    setError('');
+    setSuccess('');
+    setIsSubmitting(false);
+  }, [mode, isOpen]);
+
   if (!isOpen) return null;
 
   const isLogin = mode === 'login';
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setIsSubmitting(true);
+
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get('email') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
+    const payload = isLogin
+      ? { email, password }
+      : {
+          email,
+          password,
+          firstName: String(formData.get('firstName') ?? '').trim(),
+          lastName: String(formData.get('lastName') ?? '').trim(),
+        };
+
+    try {
+      const session = await authenticate(mode, payload);
+      onAuthenticated(session);
+      setSuccess(isLogin ? 'Login successful.' : 'Registration successful.');
+      onClose();
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Authentication failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center px-5 py-8">
@@ -855,24 +1114,37 @@ function AuthPopup({
 
         <form
           className="mt-7 space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onClose();
-          }}
+          onSubmit={handleSubmit}
         >
           {!isLogin && (
-            <label className="block">
-              <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                Full Name
-              </span>
-              <input
-                type="text"
-                autoComplete="name"
-                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                placeholder="Alex Morgan"
-                required
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+                  First Name
+                </span>
+                <input
+                  name="firstName"
+                  type="text"
+                  autoComplete="given-name"
+                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                  placeholder="Alex"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+                  Last Name
+                </span>
+                <input
+                  name="lastName"
+                  type="text"
+                  autoComplete="family-name"
+                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                  placeholder="Morgan"
+                  required
+                />
+              </label>
+            </div>
           )}
 
           <label className="block">
@@ -882,6 +1154,7 @@ function AuthPopup({
             <div className="relative">
               <Mail className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
               <input
+                name="email"
                 type="email"
                 autoComplete="email"
                 className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
@@ -896,34 +1169,34 @@ function AuthPopup({
               Password
             </span>
             <input
+              name="password"
               type="password"
               autoComplete={isLogin ? 'current-password' : 'new-password'}
+              minLength={isLogin ? undefined : 8}
               className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
               placeholder={isLogin ? 'Enter your password' : 'Create a password'}
               required
             />
           </label>
 
-          {!isLogin && (
-            <label className="block">
-              <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                Date of Birth
-              </span>
-              <input
-                type="text"
-                autoComplete="off"
-                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                placeholder="DD.MM.YYYY"
-                required
-              />
-            </label>
+          {error && (
+            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+              {error}
+            </p>
+          )}
+
+          {success && (
+            <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500" role="status">
+              {success}
+            </p>
           )}
 
           <button
             type="submit"
-            className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 hover:brightness-105"
+            disabled={isSubmitting}
+            className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
           >
-            {isLogin ? 'Login Securely' : 'Register Interest'}
+            {isSubmitting ? 'Please wait...' : isLogin ? 'Login Securely' : 'Register'}
           </button>
         </form>
 
@@ -990,6 +1263,10 @@ function App() {
   });
   const [authMode, setAuthMode] = React.useState<AuthMode>('login');
   const [isAuthOpen, setIsAuthOpen] = React.useState(false);
+  const [authSession, setAuthSession] = React.useState<AuthSession | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return readStoredAuthSession();
+  });
   const [page, setPage] = React.useState<PageMode>(() => {
     if (typeof window === 'undefined') return 'home';
     return getPageFromPath(window.location.pathname);
@@ -1019,6 +1296,21 @@ function App() {
     navigateTo('portfolio');
   }, [navigateTo]);
 
+  const showAdmin = React.useCallback(() => {
+    navigateTo('admin');
+  }, [navigateTo]);
+
+  const handleAuthenticated = React.useCallback((session: AuthSession) => {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    setAuthSession(session);
+  }, []);
+
+  const handleLogout = React.useCallback(() => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuthSession(null);
+    setAuthMode('login');
+  }, []);
+
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('nexvault-theme', theme);
@@ -1040,6 +1332,9 @@ function App() {
         theme={theme}
         toggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
         openAuth={openAuth}
+        authSession={authSession}
+        onLogout={handleLogout}
+        showAdmin={showAdmin}
         showHome={showHome}
         showTransactions={showTransactions}
         showPortfolio={showPortfolio}
@@ -1054,7 +1349,7 @@ function App() {
         )}
         {page === 'transactions' && <TransactionsPage showHome={showHome} />}
         {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
-        {page === 'admin' && <AdminPage showHome={showHome} />}
+        {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
       </main>
       {page === 'home' && <Footer />}
       <AuthPopup
@@ -1062,6 +1357,7 @@ function App() {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onModeChange={setAuthMode}
+        onAuthenticated={handleAuthenticated}
       />
     </>
   );

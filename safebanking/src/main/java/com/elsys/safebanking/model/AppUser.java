@@ -2,6 +2,8 @@ package com.elsys.safebanking.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -30,6 +32,10 @@ public class AppUser {
     @Column(nullable = false, length = 100)
     private String lastName;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'USER'")
+    private UserRole role = UserRole.USER;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -40,10 +46,15 @@ public class AppUser {
     }
 
     public AppUser(String email, String passwordHash, String firstName, String lastName) {
+        this(email, passwordHash, firstName, lastName, UserRole.USER);
+    }
+
+    public AppUser(String email, String passwordHash, String firstName, String lastName, UserRole role) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.firstName = firstName;
         this.lastName = lastName;
+        this.role = role;
     }
 
     @PrePersist
@@ -78,6 +89,10 @@ public class AppUser {
         return lastName;
     }
 
+    public UserRole getRole() {
+        return role;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -89,5 +104,9 @@ public class AppUser {
     public void updateProfile(String firstName, String lastName) {
         this.firstName = firstName;
         this.lastName = lastName;
+    }
+
+    public void updateRole(UserRole role) {
+        this.role = role;
     }
 }

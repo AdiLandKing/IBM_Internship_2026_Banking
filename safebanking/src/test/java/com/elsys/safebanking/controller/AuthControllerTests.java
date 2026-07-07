@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.elsys.safebanking.model.AppUser;
+import com.elsys.safebanking.model.UserRole;
 import com.elsys.safebanking.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -34,6 +37,9 @@ class AuthControllerTests {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @BeforeEach
     void cleanDatabase() {
@@ -55,7 +61,8 @@ class AuthControllerTests {
                 .andExpect(jsonPath("$.accessToken", not(blankOrNullString())))
                 .andExpect(jsonPath("$.user.email").value("client@example.com"))
                 .andExpect(jsonPath("$.user.firstName").value("Alex"))
-                .andExpect(jsonPath("$.user.lastName").value("Morgan"));
+                .andExpect(jsonPath("$.user.lastName").value("Morgan"))
+                .andExpect(jsonPath("$.user.role").value("USER"));
     }
 
     @Test
@@ -71,7 +78,8 @@ class AuthControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.accessToken", not(blankOrNullString())))
-                .andExpect(jsonPath("$.user.email").value("client@example.com"));
+                .andExpect(jsonPath("$.user.email").value("client@example.com"))
+                .andExpect(jsonPath("$.user.role").value("USER"));
     }
 
     @Test
@@ -134,6 +142,34 @@ class AuthControllerTests {
     }
 
     @Test
+    void regularUserCannotAccessAdminSession() throws Exception {
+        String token = register("client@example.com", "strongPassword123");
+
+        mockMvc.perform(get("/api/admin/session")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminUserCanAccessAdminSession() throws Exception {
+        userRepository.save(new AppUser(
+                "admin@example.com",
+                passwordEncoder.encode("adminPassword123"),
+                "Admin",
+                "User",
+                UserRole.ADMIN
+        ));
+
+        String token = login("admin@example.com", "adminPassword123");
+
+        mockMvc.perform(get("/api/admin/session")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("admin@example.com"))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+    }
+
+    @Test
     void invalidRegisterRequestReturnsValidationErrors() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -159,6 +195,20 @@ class AuthControllerTests {
                                 "lastName", "Morgan"
                         ))))
                 .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode jsonNode = objectMapper.readTree(result.getResponse().getContentAsString());
+        return jsonNode.get("accessToken").asText();
+    }
+
+    private String login(String email, String password) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "email", email,
+                                "password", password
+                        ))))
+                .andExpect(status().isOk())
                 .andReturn();
 
         JsonNode jsonNode = objectMapper.readTree(result.getResponse().getContentAsString());
