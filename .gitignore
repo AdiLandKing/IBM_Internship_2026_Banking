@@ -65,6 +65,7 @@ build/
 # ----------------------------------------------
 node_modules/
 dist/
+safebanking/src/main/resources/static/assets/
 *.local
 .env
 .env.*
