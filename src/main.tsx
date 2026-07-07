@@ -1256,6 +1256,65 @@ function Footer() {
   );
 }
 
+function AuthenticationGate({
+  openAuth,
+  theme,
+  toggleTheme,
+}: {
+  openAuth: (mode: AuthMode) => void;
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
+}) {
+  const ThemeIcon = theme === 'dark' ? Moon : Sun;
+
+  return (
+    <main className="pattern-bg relative flex min-h-screen items-center px-6 py-12 sm:px-10">
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className="absolute right-6 top-6 grid h-10 w-10 place-items-center rounded-full border border-[rgb(var(--line-strong))] bg-[rgb(var(--float-bg))] text-[rgb(var(--gold))] shadow-vault transition hover:-translate-y-0.5 sm:right-10"
+        aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+      >
+        <ThemeIcon size={20} strokeWidth={1.8} />
+      </button>
+
+      <section className="mx-auto w-full max-w-[680px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-8 text-center shadow-vault sm:p-10">
+        <div className="flex justify-center">
+          <Logo />
+        </div>
+        <div className="mx-auto mt-10 grid h-14 w-14 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <LockKeyhole size={24} strokeWidth={1.8} />
+        </div>
+        <p className="mt-7 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">
+          Secure Access Required
+        </p>
+        <h1 className="mt-4 font-display text-[clamp(2.8rem,5vw,4.4rem)] font-semibold leading-none text-[rgb(var(--text-strong))]">
+          Login to Continue
+        </h1>
+        <p className="mx-auto mt-6 max-w-[520px] text-base leading-7 text-[rgb(var(--text-muted))]">
+          Sign in to access your portfolio, transfers, and private banking workspace.
+        </p>
+        <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => openAuth('login')}
+            className="rounded-md bg-[rgb(var(--gold))] px-8 py-4 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+          >
+            Client Login
+          </button>
+          <button
+            type="button"
+            onClick={() => openAuth('register')}
+            className="rounded-md border border-[rgb(var(--button-line))] px-8 py-4 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]"
+          >
+            Register
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [theme, setTheme] = React.useState<'dark' | 'light'>(() => {
     if (typeof window === 'undefined') return 'dark';
@@ -1325,6 +1384,32 @@ function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  React.useEffect(() => {
+    if (!authSession) {
+      setAuthMode('login');
+      setIsAuthOpen(true);
+    }
+  }, [authSession]);
+
+  if (!authSession) {
+    return (
+      <>
+        <AuthenticationGate
+          openAuth={openAuth}
+          theme={theme}
+          toggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+        />
+        <AuthPopup
+          mode={authMode}
+          isOpen={isAuthOpen}
+          onClose={() => setIsAuthOpen(false)}
+          onModeChange={setAuthMode}
+          onAuthenticated={handleAuthenticated}
+        />
+      </>
+    );
+  }
 
   return (
     <>
