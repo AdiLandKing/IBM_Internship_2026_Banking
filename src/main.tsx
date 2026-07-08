@@ -146,8 +146,22 @@ type ApiErrorResponse = {
 
 type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password' | 'confirmPassword', string>>;
 
-const PASSWORD_REQUIREMENTS = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
-const REGISTRATION_PASSWORD_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
+const AUTH_RULE_MESSAGE = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
+const REGISTRATION_AUTH_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
+const AUTH_INPUT_AUTOCOMPLETE = {
+  loginEntry: 'current-password',
+  newEntry: 'new-password',
+} as const;
+const AUTH_FIELD_IDS = {
+  entryRequirements: 'password-requirements',
+  entryError: 'password-error',
+  confirmEntryError: 'confirm-password-error',
+} as const;
+const AUTH_FIELD_PLACEHOLDERS = {
+  loginEntry: 'Enter your password',
+  newEntry: 'Create a password',
+  confirmEntry: 'Re-enter your password',
+} as const;
 
 function hasInteger(value: string) {
   return /\d/.test(value);
@@ -227,7 +241,7 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
   }
 
   if (!isValidRegistrationPassword(password)) {
-    validationErrors.password = PASSWORD_REQUIREMENTS;
+    validationErrors.password = AUTH_RULE_MESSAGE;
   }
 
   if (!confirmPassword) {
@@ -1132,15 +1146,16 @@ function AuthPopup({
 
   const isLogin = mode === 'login';
   const latestBirthDate = getLatestValidBirthDate();
-  const PasswordVisibilityIcon = showPassword ? EyeOff : Eye;
-  const passwordInputType = showPassword ? 'text' : 'password';
-  const passwordAutoComplete = isLogin ? 'current-password' : 'new-password';
-  const passwordMinLength = isLogin ? undefined : 10;
-  const passwordPattern = isLogin ? undefined : REGISTRATION_PASSWORD_PATTERN;
-  const passwordRequirementsId = isLogin ? undefined : 'password-requirements';
-  const passwordErrorId = fieldErrors.password ? 'password-error' : undefined;
-  const passwordDescriptionId = passwordErrorId ?? passwordRequirementsId;
-  const passwordPlaceholder = isLogin ? 'Enter your password' : 'Create a password';
+  const AuthEntryVisibilityIcon = showPassword ? EyeOff : Eye;
+  const authEntryInputType = showPassword ? 'text' : 'password';
+  const authEntryAutoComplete = isLogin ? AUTH_INPUT_AUTOCOMPLETE.loginEntry : AUTH_INPUT_AUTOCOMPLETE.newEntry;
+  const authEntryMinLength = isLogin ? undefined : 10;
+  const authEntryPattern = isLogin ? undefined : REGISTRATION_AUTH_PATTERN;
+  const authEntryRequirementsId = isLogin ? undefined : AUTH_FIELD_IDS.entryRequirements;
+  const authEntryErrorId = fieldErrors.password ? AUTH_FIELD_IDS.entryError : undefined;
+  const authEntryDescriptionId = authEntryErrorId ?? authEntryRequirementsId;
+  const authEntryPlaceholder = isLogin ? AUTH_FIELD_PLACEHOLDERS.loginEntry : AUTH_FIELD_PLACEHOLDERS.newEntry;
+  const confirmAuthEntryErrorId = fieldErrors.confirmPassword ? AUTH_FIELD_IDS.confirmEntryError : undefined;
   const authSubmitText = isLogin ? 'Login Securely' : 'Register';
   const submitButtonText = isSubmitting ? 'Please wait...' : authSubmitText;
 
@@ -1359,16 +1374,16 @@ function AuthPopup({
             <div className="relative">
               <input
                 name="password"
-                type={passwordInputType}
-                autoComplete={passwordAutoComplete}
-                minLength={passwordMinLength}
-                pattern={passwordPattern}
+                type={authEntryInputType}
+                autoComplete={authEntryAutoComplete}
+                minLength={authEntryMinLength}
+                pattern={authEntryPattern}
                 aria-invalid={Boolean(fieldErrors.password)}
-                aria-describedby={passwordDescriptionId}
+                aria-describedby={authEntryDescriptionId}
                 className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
                   fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
                 }`}
-                placeholder={isLogin ? 'Enter your password' : 'Create a password'}
+                placeholder={authEntryPlaceholder}
                 required
               />
               <button
@@ -1378,16 +1393,16 @@ function AuthPopup({
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 aria-pressed={showPassword}
               >
-                <PasswordVisibilityIcon size={17} strokeWidth={1.8} />
+                <AuthEntryVisibilityIcon size={17} strokeWidth={1.8} />
               </button>
             </div>
             {!isLogin && !fieldErrors.password && (
-              <p id="password-requirements" className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+              <p id={AUTH_FIELD_IDS.entryRequirements} className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
                 Minimum 10 characters with 1 uppercase letter, 1 number, and 1 special character.
               </p>
             )}
             {fieldErrors.password && (
-              <p id="password-error" className="mt-2 text-xs font-bold leading-5 text-red-500">
+              <p id={AUTH_FIELD_IDS.entryError} className="mt-2 text-xs font-bold leading-5 text-red-500">
                 {fieldErrors.password}
               </p>
             )}
@@ -1401,15 +1416,15 @@ function AuthPopup({
               <div className="relative">
                 <input
                   name="confirmPassword"
-                  type={passwordInputType}
-                  autoComplete="new-password"
+                  type={authEntryInputType}
+                  autoComplete={AUTH_INPUT_AUTOCOMPLETE.newEntry}
                   minLength={10}
                   aria-invalid={Boolean(fieldErrors.confirmPassword)}
-                  aria-describedby={fieldErrors.confirmPassword ? 'confirm-password-error' : undefined}
+                  aria-describedby={confirmAuthEntryErrorId}
                   className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
                     fieldErrors.confirmPassword ? 'border-red-500' : 'border-[rgb(var(--line))]'
                   }`}
-                  placeholder="Re-enter your password"
+                  placeholder={AUTH_FIELD_PLACEHOLDERS.confirmEntry}
                   required
                 />
                 <button
@@ -1419,11 +1434,11 @@ function AuthPopup({
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
                 >
-                  <PasswordVisibilityIcon size={17} strokeWidth={1.8} />
+                  <AuthEntryVisibilityIcon size={17} strokeWidth={1.8} />
                 </button>
               </div>
               {fieldErrors.confirmPassword && (
-                <p id="confirm-password-error" className="mt-2 text-xs font-bold leading-5 text-red-500">
+                <p id={AUTH_FIELD_IDS.confirmEntryError} className="mt-2 text-xs font-bold leading-5 text-red-500">
                   {fieldErrors.confirmPassword}
                 </p>
               )}
