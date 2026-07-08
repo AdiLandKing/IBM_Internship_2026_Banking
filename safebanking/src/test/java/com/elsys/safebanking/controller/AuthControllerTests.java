@@ -115,7 +115,7 @@ class AuthControllerTests {
     @Test
     void profileRequiresBearerToken() throws Exception {
         mockMvc.perform(get("/api/users/profile"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

@@ -2,14 +2,16 @@ package com.elsys.safebanking.controller;
 
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
+import com.elsys.safebanking.service.AppUserDetailsService;
+import com.elsys.safebanking.service.JwtService;
 import com.elsys.safebanking.service.TransferService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -27,8 +29,14 @@ class TransactionControllerTests {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private TransferService transferService;
+
+    @MockitoBean
+    private AppUserDetailsService appUserDetailsService;
+
+    @MockitoBean
+    private JwtService jwtService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -62,6 +70,8 @@ class TransactionControllerTests {
         mockMvc.perform(post("/api/v1/transactions/transfer")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.sourceAccountIban").exists())
+                .andExpect(jsonPath("$.fieldErrors.amount").exists());
     }
 }
