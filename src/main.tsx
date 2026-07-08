@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Activity, ArrowLeft, Calendar, ChartPie, Landmark, LockKeyhole, Mail, Moon, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, Calendar, ChartPie, Eye, EyeOff, Landmark, LockKeyhole, Mail, Moon, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './styles.css';
 
@@ -143,7 +143,7 @@ type ApiErrorResponse = {
   fieldErrors?: Record<string, string>;
 };
 
-type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password', string>>;
+type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password' | 'confirmPassword', string>>;
 
 const PASSWORD_REQUIREMENTS = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
 
@@ -177,6 +177,7 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
   const firstName = String(formData.get('firstName') ?? '').trim();
   const lastName = String(formData.get('lastName') ?? '').trim();
   const password = String(formData.get('password') ?? '');
+  const confirmPassword = String(formData.get('confirmPassword') ?? '');
   const dateOfBirth = String(formData.get('dateOfBirth') ?? '');
   const validationErrors: AuthFieldErrors = {};
 
@@ -204,6 +205,12 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
 
   if (!isValidRegistrationPassword(password)) {
     validationErrors.password = PASSWORD_REQUIREMENTS;
+  }
+
+  if (!confirmPassword) {
+    validationErrors.confirmPassword = 'Confirm your password.';
+  } else if (password !== confirmPassword) {
+    validationErrors.confirmPassword = 'Passwords must match.';
   }
 
   return validationErrors;
@@ -1071,6 +1078,7 @@ function AuthPopup({
   const [error, setError] = React.useState('');
   const [success, setSuccess] = React.useState('');
   const [fieldErrors, setFieldErrors] = React.useState<AuthFieldErrors>({});
+  const [showPassword, setShowPassword] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
@@ -1093,6 +1101,7 @@ function AuthPopup({
     setError('');
     setSuccess('');
     setFieldErrors({});
+    setShowPassword(false);
     setIsSubmitting(false);
   }, [mode, isOpen]);
 
@@ -1100,6 +1109,7 @@ function AuthPopup({
 
   const isLogin = mode === 'login';
   const todayDate = new Date().toISOString().slice(0, 10);
+  const PasswordVisibilityIcon = showPassword ? EyeOff : Eye;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1313,20 +1323,31 @@ function AuthPopup({
             <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
               Password
             </span>
-            <input
-              name="password"
-              type="password"
-              autoComplete={isLogin ? 'current-password' : 'new-password'}
-              minLength={isLogin ? undefined : 10}
-              pattern={isLogin ? undefined : '^(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{10,}$'}
-              aria-invalid={Boolean(fieldErrors.password)}
-              aria-describedby={fieldErrors.password ? 'password-error' : !isLogin ? 'password-requirements' : undefined}
-              className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
-              }`}
-              placeholder={isLogin ? 'Enter your password' : 'Create a password'}
-              required
-            />
+            <div className="relative">
+              <input
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
+                minLength={isLogin ? undefined : 10}
+                pattern={isLogin ? undefined : '^(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{10,}$'}
+                aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? 'password-error' : !isLogin ? 'password-requirements' : undefined}
+                className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                  fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                }`}
+                placeholder={isLogin ? 'Enter your password' : 'Create a password'}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((current) => !current)}
+                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+              >
+                <PasswordVisibilityIcon size={17} strokeWidth={1.8} />
+              </button>
+            </div>
             {!isLogin && !fieldErrors.password && (
               <p id="password-requirements" className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
                 Minimum 10 characters with 1 uppercase letter, 1 number, and 1 special character.
@@ -1338,6 +1359,43 @@ function AuthPopup({
               </p>
             )}
           </label>
+
+          {!isLogin && (
+            <label className="block">
+              <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+                Confirm Password
+              </span>
+              <div className="relative">
+                <input
+                  name="confirmPassword"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  minLength={10}
+                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                  aria-describedby={fieldErrors.confirmPassword ? 'confirm-password-error' : undefined}
+                  className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                    fieldErrors.confirmPassword ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
+                  placeholder="Re-enter your password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  <PasswordVisibilityIcon size={17} strokeWidth={1.8} />
+                </button>
+              </div>
+              {fieldErrors.confirmPassword && (
+                <p id="confirm-password-error" className="mt-2 text-xs font-bold leading-5 text-red-500">
+                  {fieldErrors.confirmPassword}
+                </p>
+              )}
+            </label>
+          )}
 
           {error && (
             <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
