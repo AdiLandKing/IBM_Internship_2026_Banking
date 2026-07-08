@@ -127,6 +127,7 @@ type UserProfile = {
   email: string;
   firstName: string;
   lastName: string;
+  dateOfBirth: string | null;
   role: 'USER' | 'ADMIN';
   createdAt: string;
 };
@@ -169,7 +170,13 @@ function isValidDateOfBirth(value: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  return !Number.isNaN(selectedDate.getTime()) && selectedDate <= today;
+  return !Number.isNaN(selectedDate.getTime()) && selectedDate < today;
+}
+
+function getLatestValidBirthDate() {
+  const latestDate = new Date();
+  latestDate.setDate(latestDate.getDate() - 1);
+  return latestDate.toISOString().slice(0, 10);
 }
 
 function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
@@ -1108,7 +1115,7 @@ function AuthPopup({
   if (!isOpen) return null;
 
   const isLogin = mode === 'login';
-  const todayDate = new Date().toISOString().slice(0, 10);
+  const latestBirthDate = getLatestValidBirthDate();
   const PasswordVisibilityIcon = showPassword ? EyeOff : Eye;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -1275,7 +1282,7 @@ function AuthPopup({
                     name="dateOfBirth"
                     type="date"
                     autoComplete="bday"
-                    max={todayDate}
+                    max={latestBirthDate}
                     aria-invalid={Boolean(fieldErrors.dateOfBirth)}
                     aria-describedby={fieldErrors.dateOfBirth ? 'date-of-birth-error' : undefined}
                     className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${

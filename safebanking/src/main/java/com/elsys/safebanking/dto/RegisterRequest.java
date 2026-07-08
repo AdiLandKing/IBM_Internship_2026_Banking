@@ -2,7 +2,10 @@ package com.elsys.safebanking.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 
 public record RegisterRequest(
         @NotBlank(message = "Email is required")
@@ -20,6 +23,10 @@ public record RegisterRequest(
 
         @NotBlank(message = "Last name is required")
         @Size(max = 100, message = "Last name must be at most 100 characters")
-        String lastName
+        String lastName,
+
+        @NotNull(message = "Date of birth is required")
+        @Past(message = "Date of birth must be in the past")
+        LocalDate dateOfBirth
 ) {
 }

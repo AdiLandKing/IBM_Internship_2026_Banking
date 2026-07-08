@@ -41,7 +41,8 @@ public class AuthService {
                 email,
                 passwordEncoder.encode(request.password()),
                 request.firstName().trim(),
-                request.lastName().trim()
+                request.lastName().trim(),
+                request.dateOfBirth()
         ));
 
         return createAuthResponse(user);

@@ -54,7 +54,8 @@ class AuthControllerTests {
                                 "email", "client@example.com",
                                 "password", "strongPassword123",
                                 "firstName", "Alex",
-                                "lastName", "Morgan"
+                                "lastName", "Morgan",
+                                "dateOfBirth", "1995-04-12"
                         ))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
@@ -62,6 +63,7 @@ class AuthControllerTests {
                 .andExpect(jsonPath("$.user.email").value("client@example.com"))
                 .andExpect(jsonPath("$.user.firstName").value("Alex"))
                 .andExpect(jsonPath("$.user.lastName").value("Morgan"))
+                .andExpect(jsonPath("$.user.dateOfBirth").value("1995-04-12"))
                 .andExpect(jsonPath("$.user.role").value("USER"));
     }
 
@@ -92,7 +94,8 @@ class AuthControllerTests {
                                 "email", "CLIENT@example.com",
                                 "password", "anotherPassword123",
                                 "firstName", "Casey",
-                                "lastName", "Rivera"
+                                "lastName", "Rivera",
+                                "dateOfBirth", "1991-08-24"
                         ))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("An account with this email already exists"));
@@ -182,7 +185,8 @@ class AuthControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.email").exists())
                 .andExpect(jsonPath("$.fieldErrors.password").exists())
-                .andExpect(jsonPath("$.fieldErrors.firstName").exists());
+                .andExpect(jsonPath("$.fieldErrors.firstName").exists())
+                .andExpect(jsonPath("$.fieldErrors.dateOfBirth").exists());
     }
 
     private String register(String email, String password) throws Exception {
@@ -192,7 +196,8 @@ class AuthControllerTests {
                                 "email", email,
                                 "password", password,
                                 "firstName", "Alex",
-                                "lastName", "Morgan"
+                                "lastName", "Morgan",
+                                "dateOfBirth", "1995-04-12"
                         ))))
                 .andExpect(status().isCreated())
                 .andReturn();
