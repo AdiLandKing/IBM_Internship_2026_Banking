@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 11.7.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Detect frontend scripts
+        id: frontend-scripts
+        shell: bash
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const scripts = require('./package.json').scripts || {};
+          const hasScript = (name) => Boolean(scripts[name]);
+
+          console.log(`lint=${hasScript('lint')}`);
+          console.log(`format_check=${hasScript('format:check')}`);
+          console.log(`typecheck=${hasScript('typecheck')}`);
+          console.log(`test=${hasScript('test')}`);
+          NODE
+
+      - name: Lint
+        if: steps.frontend-scripts.outputs.lint == 'true'
+        run: pnpm run lint
+
+      - name: Prettier check
+        if: steps.frontend-scripts.outputs.format_check == 'true'
+        run: pnpm run format:check
+
+      - name: TypeScript type check
+        run: |
+          if [ "${{ steps.frontend-scripts.outputs.typecheck }}" = "true" ]; then
+            pnpm run typecheck
+          else
+            pnpm exec tsc --noEmit --ignoreDeprecations 6.0
+          fi
+
+      - name: Frontend tests
+        if: steps.frontend-scripts.outputs.test == 'true'
+        run: pnpm test
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: frontend-static
+          path: safebanking/src/main/resources/static/
+          if-no-files-found: error
+
+  backend:
+    name: Backend Verify
+    needs: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write
+    defaults:
+      run:
+        working-directory: safebanking
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-static
+          path: safebanking/src/main/resources/static
+
+      - name: Set up Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: safebanking/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Verify backend
+        run: ./mvnw -B -ntp clean verify
+
+      - name: Publish test report
+        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc
+        if: always()
+        with:
+          name: Backend JUnit Tests
+          path: safebanking/target/surefire-reports/*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: backend-surefire-reports
+          path: safebanking/target/surefire-reports/
+          if-no-files-found: ignore
+
+      - name: Upload application jar
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success()
+        with:
+          name: safebanking-jar
+          path: safebanking/target/*.jar
+          if-no-files-found: error
