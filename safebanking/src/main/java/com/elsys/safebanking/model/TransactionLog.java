@@ -1,27 +1,23 @@
 package com.elsys.safebanking.model;
 
 import jakarta.persistence.*;
-import java.time.Instant;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
+import java.time.Instant;
 
-@Entity
-@Table(name = "transaction_logs")
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
+@Entity
+@Table(name = "transaction_logs")
 public class TransactionLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "logID")
+    @Column(name = "log_id")
     private Long logId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "tranID", nullable = false)
+    @JoinColumn(name = "tran_id", nullable = false)
     private BankingTransaction transaction;
 
     @Column(name = "log_entry_text", nullable = false, columnDefinition = "TEXT")
@@ -29,4 +25,6 @@ public class TransactionLog {
 
     @Column(name = "time_stamp", nullable = false)
     private Instant timeStamp;
+
+    protected TransactionLog() {}
 }

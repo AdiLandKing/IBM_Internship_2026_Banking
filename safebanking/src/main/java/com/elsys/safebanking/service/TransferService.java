@@ -1,9 +1,10 @@
 package com.elsys.safebanking.service;
 
-import com.elsys.safebanking.dto.TransferRequestDto;
-import com.elsys.safebanking.dto.TransferResponseDto;
+import com.elsys.safebanking.dto.TransferRequest;
+import com.elsys.safebanking.dto.TransferResponse;
 
 public interface TransferService {
-
-    TransferResponseDto transfer(TransferRequestDto request);
+    
+    TransferResponse transfer(TransferRequest request);
+    
 }
