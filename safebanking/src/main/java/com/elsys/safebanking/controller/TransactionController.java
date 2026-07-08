@@ -1,7 +1,7 @@
 package com.elsys.safebanking.controller;
 
-import com.elsys.safebanking.dto.TransferRequestDto;
-import com.elsys.safebanking.dto.TransferResponseDto;
+import com.elsys.safebanking.dto.TransferRequest;
+import com.elsys.safebanking.dto.TransferResponse;
 import com.elsys.safebanking.service.TransferService;
 import com.elsys.safebanking.routes.ApiRoutes;
 import jakarta.validation.Valid;
@@ -22,7 +22,7 @@ public class TransactionController {
     }
 
     @PostMapping("/transfer")
-    public ResponseEntity<TransferResponseDto> transfer(@Valid @RequestBody TransferRequestDto request) {
+    public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferRequest request) {
         return ResponseEntity.ok(transferService.transfer(request));
     }
 }
