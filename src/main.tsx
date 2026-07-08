@@ -181,7 +181,7 @@ function isValidEmail(value: string) {
   if (emailParts.length !== 2) return false;
 
   const [localPart, domain] = emailParts;
-  if (!localPart || !domain || !domain.includes('.')) return false;
+  if (!localPart || !domain?.includes('.')) return false;
 
   return domain.split('.').every((part) => part.length > 0);
 }
@@ -1099,25 +1099,72 @@ function Cta({ showTransactions, showPortfolio }: { showTransactions: () => void
   );
 }
 
-function AuthPopup({
-  mode,
-  isOpen,
-  onClose,
-  onModeChange,
-  onAuthenticated,
-}: {
+type AuthPopupProps = {
   mode: AuthMode;
   isOpen: boolean;
   onClose: () => void;
   onModeChange: (mode: AuthMode) => void;
   onAuthenticated: (session: AuthSession) => void;
-}) {
-  const [error, setError] = React.useState('');
-  const [success, setSuccess] = React.useState('');
-  const [fieldErrors, setFieldErrors] = React.useState<AuthFieldErrors>({});
-  const [showPassword, setShowPassword] = React.useState(false);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+};
 
+type AuthFormViewModel = {
+  isLogin: boolean;
+  latestBirthDate: string;
+  AuthEntryVisibilityIcon: LucideIcon;
+  authEntryInputType: 'text' | 'password';
+  authEntryAutoComplete: string;
+  authEntryMinLength?: number;
+  authEntryPattern?: string;
+  authEntryDescriptionId?: string;
+  authEntryPlaceholder: string;
+  confirmAuthEntryErrorId?: string;
+  submitButtonText: string;
+};
+
+function getAuthFormViewModel(
+  mode: AuthMode,
+  showPassword: boolean,
+  fieldErrors: AuthFieldErrors,
+  isSubmitting: boolean,
+): AuthFormViewModel {
+  const isLogin = mode === 'login';
+  const authSubmitText = isLogin ? 'Login Securely' : 'Register';
+  const authEntryErrorId = fieldErrors.password ? AUTH_FIELD_IDS.entryError : undefined;
+  const authEntryRequirementsId = isLogin ? undefined : AUTH_FIELD_IDS.entryRequirements;
+
+  return {
+    isLogin,
+    latestBirthDate: getLatestValidBirthDate(),
+    AuthEntryVisibilityIcon: showPassword ? EyeOff : Eye,
+    authEntryInputType: showPassword ? 'text' : 'password',
+    authEntryAutoComplete: isLogin ? AUTH_INPUT_AUTOCOMPLETE.loginEntry : AUTH_INPUT_AUTOCOMPLETE.newEntry,
+    authEntryMinLength: isLogin ? undefined : 10,
+    authEntryPattern: isLogin ? undefined : REGISTRATION_AUTH_PATTERN,
+    authEntryDescriptionId: authEntryErrorId ?? authEntryRequirementsId,
+    authEntryPlaceholder: isLogin ? AUTH_FIELD_PLACEHOLDERS.loginEntry : AUTH_FIELD_PLACEHOLDERS.newEntry,
+    confirmAuthEntryErrorId: fieldErrors.confirmPassword ? AUTH_FIELD_IDS.confirmEntryError : undefined,
+    submitButtonText: isSubmitting ? 'Please wait...' : authSubmitText,
+  };
+}
+
+function buildAuthPayload(mode: AuthMode, formData: FormData): Record<string, string> {
+  const email = getFormString(formData, 'email', true);
+  const password = getFormString(formData, 'password');
+
+  if (mode === 'login') {
+    return { email, password };
+  }
+
+  return {
+    email,
+    password,
+    firstName: getFormString(formData, 'firstName', true),
+    lastName: getFormString(formData, 'lastName', true),
+    dateOfBirth: getFormString(formData, 'dateOfBirth'),
+  };
+}
+
+function useAuthPopupLifecycle(mode: AuthMode, isOpen: boolean, onClose: () => void, resetState: () => void) {
   React.useEffect(() => {
     if (!isOpen) return;
 
@@ -1135,29 +1182,351 @@ function AuthPopup({
   }, [isOpen, onClose]);
 
   React.useEffect(() => {
+    resetState();
+  }, [mode, isOpen, resetState]);
+}
+
+function AuthPopupIntro({ isLogin }: { isLogin: boolean }) {
+  const IntroIcon = isLogin ? LockKeyhole : UserPlus;
+  const title = isLogin ? 'Welcome Back' : 'Request Access';
+  const description = isLogin
+    ? 'Sign in to review your portfolio, advisory notes, and private banking activity.'
+    : 'Create an access request and a private banking advisor will review your introduction.';
+
+  return (
+    <div className="pr-10">
+      <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+        <IntroIcon size={20} strokeWidth={1.8} />
+      </div>
+      <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">
+        Secure Client Access
+      </p>
+      <h2 id="auth-title" className="mt-3 font-display text-4xl font-semibold leading-tight text-[rgb(var(--text-strong))]">
+        {title}
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function AuthModeTabs({ mode, onModeChange }: { mode: AuthMode; onModeChange: (mode: AuthMode) => void }) {
+  return (
+    <div className="mt-7 grid grid-cols-2 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-1">
+      {(['login', 'register'] as AuthMode[]).map((item) => (
+        <button
+          key={item}
+          type="button"
+          onClick={() => onModeChange(item)}
+          className={`rounded px-4 py-2.5 text-sm font-extrabold capitalize transition ${
+            mode === item
+              ? 'bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))]'
+              : 'text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-strong))]'
+          }`}
+        >
+          {item}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RegistrationFields({
+  isLogin,
+  fieldErrors,
+  latestBirthDate,
+}: {
+  isLogin: boolean;
+  fieldErrors: AuthFieldErrors;
+  latestBirthDate: string;
+}) {
+  if (isLogin) return null;
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+            First Name
+          </span>
+          <input
+            name="firstName"
+            type="text"
+            autoComplete="given-name"
+            pattern="^[^0-9]+$"
+            aria-invalid={Boolean(fieldErrors.firstName)}
+            aria-describedby={fieldErrors.firstName ? 'first-name-error' : undefined}
+            className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+              fieldErrors.firstName ? 'border-red-500' : 'border-[rgb(var(--line))]'
+            }`}
+            placeholder="Alex"
+            required
+          />
+          {fieldErrors.firstName && (
+            <p id="first-name-error" className="mt-2 text-xs font-bold text-red-500">
+              {fieldErrors.firstName}
+            </p>
+          )}
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+            Last Name
+          </span>
+          <input
+            name="lastName"
+            type="text"
+            autoComplete="family-name"
+            pattern="^[^0-9]+$"
+            aria-invalid={Boolean(fieldErrors.lastName)}
+            aria-describedby={fieldErrors.lastName ? 'last-name-error' : undefined}
+            className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+              fieldErrors.lastName ? 'border-red-500' : 'border-[rgb(var(--line))]'
+            }`}
+            placeholder="Morgan"
+            required
+          />
+          {fieldErrors.lastName && (
+            <p id="last-name-error" className="mt-2 text-xs font-bold text-red-500">
+              {fieldErrors.lastName}
+            </p>
+          )}
+        </label>
+      </div>
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+          Date of Birth
+        </span>
+        <div className="relative">
+          <Calendar className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
+          <input
+            name="dateOfBirth"
+            type="date"
+            autoComplete="bday"
+            max={latestBirthDate}
+            aria-invalid={Boolean(fieldErrors.dateOfBirth)}
+            aria-describedby={fieldErrors.dateOfBirth ? 'date-of-birth-error' : undefined}
+            className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+              fieldErrors.dateOfBirth ? 'border-red-500' : 'border-[rgb(var(--line))]'
+            }`}
+            required
+          />
+        </div>
+        {fieldErrors.dateOfBirth && (
+          <p id="date-of-birth-error" className="mt-2 text-xs font-bold text-red-500">
+            {fieldErrors.dateOfBirth}
+          </p>
+        )}
+      </label>
+    </>
+  );
+}
+
+function EmailField({ fieldErrors }: { fieldErrors: AuthFieldErrors }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+        Email Address
+      </span>
+      <div className="relative">
+        <Mail className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
+        <input
+          name="email"
+          type="email"
+          autoComplete="email"
+          aria-invalid={Boolean(fieldErrors.email)}
+          aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+          className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+            fieldErrors.email ? 'border-red-500' : 'border-[rgb(var(--line))]'
+          }`}
+          placeholder="client@example.com"
+          required
+        />
+      </div>
+      {fieldErrors.email && (
+        <p id="email-error" className="mt-2 text-xs font-bold text-red-500">
+          {fieldErrors.email}
+        </p>
+      )}
+    </label>
+  );
+}
+
+function AuthEntryField({
+  isLogin,
+  fieldErrors,
+  view,
+  showPassword,
+  togglePasswordVisibility,
+}: {
+  isLogin: boolean;
+  fieldErrors: AuthFieldErrors;
+  view: AuthFormViewModel;
+  showPassword: boolean;
+  togglePasswordVisibility: () => void;
+}) {
+  const VisibilityIcon = view.AuthEntryVisibilityIcon;
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+        Password
+      </span>
+      <div className="relative">
+        <input
+          name="password"
+          type={view.authEntryInputType}
+          autoComplete={view.authEntryAutoComplete}
+          minLength={view.authEntryMinLength}
+          pattern={view.authEntryPattern}
+          aria-invalid={Boolean(fieldErrors.password)}
+          aria-describedby={view.authEntryDescriptionId}
+          className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+            fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
+          }`}
+          placeholder={view.authEntryPlaceholder}
+          required
+        />
+        <button
+          type="button"
+          onClick={togglePasswordVisibility}
+          className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
+          aria-pressed={showPassword}
+        >
+          <VisibilityIcon size={17} strokeWidth={1.8} />
+        </button>
+      </div>
+      {!isLogin && !fieldErrors.password && (
+        <p id={AUTH_FIELD_IDS.entryRequirements} className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+          Minimum 10 characters with 1 uppercase letter, 1 number, and 1 special character.
+        </p>
+      )}
+      {fieldErrors.password && (
+        <p id={AUTH_FIELD_IDS.entryError} className="mt-2 text-xs font-bold leading-5 text-red-500">
+          {fieldErrors.password}
+        </p>
+      )}
+    </label>
+  );
+}
+
+function ConfirmAuthEntryField({
+  isLogin,
+  fieldErrors,
+  view,
+  showPassword,
+  togglePasswordVisibility,
+}: {
+  isLogin: boolean;
+  fieldErrors: AuthFieldErrors;
+  view: AuthFormViewModel;
+  showPassword: boolean;
+  togglePasswordVisibility: () => void;
+}) {
+  const VisibilityIcon = view.AuthEntryVisibilityIcon;
+
+  if (isLogin) return null;
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+        Confirm Password
+      </span>
+      <div className="relative">
+        <input
+          name="confirmPassword"
+          type={view.authEntryInputType}
+          autoComplete={AUTH_INPUT_AUTOCOMPLETE.newEntry}
+          minLength={10}
+          aria-invalid={Boolean(fieldErrors.confirmPassword)}
+          aria-describedby={view.confirmAuthEntryErrorId}
+          className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+            fieldErrors.confirmPassword ? 'border-red-500' : 'border-[rgb(var(--line))]'
+          }`}
+          placeholder={AUTH_FIELD_PLACEHOLDERS.confirmEntry}
+          required
+        />
+        <button
+          type="button"
+          onClick={togglePasswordVisibility}
+          className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
+          aria-pressed={showPassword}
+        >
+          <VisibilityIcon size={17} strokeWidth={1.8} />
+        </button>
+      </div>
+      {fieldErrors.confirmPassword && (
+        <p id={AUTH_FIELD_IDS.confirmEntryError} className="mt-2 text-xs font-bold leading-5 text-red-500">
+          {fieldErrors.confirmPassword}
+        </p>
+      )}
+    </label>
+  );
+}
+
+function AuthFeedbackMessages({ error, success }: { error: string; success: string }) {
+  return (
+    <>
+      {error && (
+        <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+          {error}
+        </p>
+      )}
+
+      {success && (
+        <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500" role="status">
+          {success}
+        </p>
+      )}
+    </>
+  );
+}
+
+function AuthModePrompt({ isLogin, onModeChange }: { isLogin: boolean; onModeChange: (mode: AuthMode) => void }) {
+  return (
+    <p className="mt-5 text-center text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+      {isLogin ? 'Need an invitation?' : 'Already approved?'}{' '}
+      <button
+        type="button"
+        onClick={() => onModeChange(isLogin ? 'register' : 'login')}
+        className="font-extrabold text-[rgb(var(--gold))] hover:underline"
+      >
+        {isLogin ? 'Request access' : 'Login instead'}
+      </button>
+    </p>
+  );
+}
+
+function AuthPopup({
+  mode,
+  isOpen,
+  onClose,
+  onModeChange,
+  onAuthenticated,
+}: AuthPopupProps) {
+  const [error, setError] = React.useState('');
+  const [success, setSuccess] = React.useState('');
+  const [fieldErrors, setFieldErrors] = React.useState<AuthFieldErrors>({});
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const resetState = React.useCallback(() => {
     setError('');
     setSuccess('');
     setFieldErrors({});
     setShowPassword(false);
     setIsSubmitting(false);
-  }, [mode, isOpen]);
+  }, []);
+
+  useAuthPopupLifecycle(mode, isOpen, onClose, resetState);
 
   if (!isOpen) return null;
 
-  const isLogin = mode === 'login';
-  const latestBirthDate = getLatestValidBirthDate();
-  const AuthEntryVisibilityIcon = showPassword ? EyeOff : Eye;
-  const authEntryInputType = showPassword ? 'text' : 'password';
-  const authEntryAutoComplete = isLogin ? AUTH_INPUT_AUTOCOMPLETE.loginEntry : AUTH_INPUT_AUTOCOMPLETE.newEntry;
-  const authEntryMinLength = isLogin ? undefined : 10;
-  const authEntryPattern = isLogin ? undefined : REGISTRATION_AUTH_PATTERN;
-  const authEntryRequirementsId = isLogin ? undefined : AUTH_FIELD_IDS.entryRequirements;
-  const authEntryErrorId = fieldErrors.password ? AUTH_FIELD_IDS.entryError : undefined;
-  const authEntryDescriptionId = authEntryErrorId ?? authEntryRequirementsId;
-  const authEntryPlaceholder = isLogin ? AUTH_FIELD_PLACEHOLDERS.loginEntry : AUTH_FIELD_PLACEHOLDERS.newEntry;
-  const confirmAuthEntryErrorId = fieldErrors.confirmPassword ? AUTH_FIELD_IDS.confirmEntryError : undefined;
-  const authSubmitText = isLogin ? 'Login Securely' : 'Register';
-  const submitButtonText = isSubmitting ? 'Please wait...' : authSubmitText;
+  const view = getAuthFormViewModel(mode, showPassword, fieldErrors, isSubmitting);
+  const togglePasswordVisibility = () => setShowPassword((current) => !current);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1166,7 +1535,7 @@ function AuthPopup({
     setFieldErrors({});
 
     const formData = new FormData(event.currentTarget);
-    const validationErrors = isLogin ? {} : getRegistrationValidationErrors(formData);
+    const validationErrors = view.isLogin ? {} : getRegistrationValidationErrors(formData);
 
     if (Object.keys(validationErrors).length > 0) {
       setFieldErrors(validationErrors);
@@ -1176,22 +1545,10 @@ function AuthPopup({
 
     setIsSubmitting(true);
 
-    const email = getFormString(formData, 'email', true);
-    const password = getFormString(formData, 'password');
-    const payload: Record<string, string> = isLogin
-      ? { email, password }
-      : {
-          email,
-          password,
-          firstName: getFormString(formData, 'firstName', true),
-          lastName: getFormString(formData, 'lastName', true),
-          dateOfBirth: getFormString(formData, 'dateOfBirth'),
-        };
-
     try {
-      const session = await authenticate(mode, payload);
+      const session = await authenticate(mode, buildAuthPayload(mode, formData));
       onAuthenticated(session);
-      setSuccess(isLogin ? 'Login successful.' : 'Registration successful.');
+      setSuccess(view.isLogin ? 'Login successful.' : 'Registration successful.');
       onClose();
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : 'Authentication failed. Please try again.');
@@ -1223,259 +1580,51 @@ function AuthPopup({
           <X size={17} strokeWidth={1.8} />
         </button>
 
-        <div className="pr-10">
-          <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
-            {isLogin ? <LockKeyhole size={20} strokeWidth={1.8} /> : <UserPlus size={20} strokeWidth={1.8} />}
-          </div>
-          <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">
-            Secure Client Access
-          </p>
-          <h2 id="auth-title" className="mt-3 font-display text-4xl font-semibold leading-tight text-[rgb(var(--text-strong))]">
-            {isLogin ? 'Welcome Back' : 'Request Access'}
-          </h2>
-          <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
-            {isLogin
-              ? 'Sign in to review your portfolio, advisory notes, and private banking activity.'
-              : 'Create an access request and a private banking advisor will review your introduction.'}
-          </p>
-        </div>
+        <AuthPopupIntro isLogin={view.isLogin} />
 
-        <div className="mt-7 grid grid-cols-2 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-1">
-          {(['login', 'register'] as AuthMode[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => onModeChange(item)}
-              className={`rounded px-4 py-2.5 text-sm font-extrabold capitalize transition ${
-                mode === item
-                  ? 'bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))]'
-                  : 'text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-strong))]'
-              }`}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
+        <AuthModeTabs mode={mode} onModeChange={onModeChange} />
 
         <form
           className="mt-7 space-y-4"
           onSubmit={handleSubmit}
-          noValidate={!isLogin}
+          noValidate={!view.isLogin}
         >
-          {!isLogin && (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                    First Name
-                  </span>
-                  <input
-                    name="firstName"
-                    type="text"
-                    autoComplete="given-name"
-                    pattern="^[^0-9]+$"
-                    aria-invalid={Boolean(fieldErrors.firstName)}
-                    aria-describedby={fieldErrors.firstName ? 'first-name-error' : undefined}
-                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                      fieldErrors.firstName ? 'border-red-500' : 'border-[rgb(var(--line))]'
-                    }`}
-                    placeholder="Alex"
-                    required
-                  />
-                  {fieldErrors.firstName && (
-                    <p id="first-name-error" className="mt-2 text-xs font-bold text-red-500">
-                      {fieldErrors.firstName}
-                    </p>
-                  )}
-                </label>
-                <label className="block">
-                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                    Last Name
-                  </span>
-                  <input
-                    name="lastName"
-                    type="text"
-                    autoComplete="family-name"
-                    pattern="^[^0-9]+$"
-                    aria-invalid={Boolean(fieldErrors.lastName)}
-                    aria-describedby={fieldErrors.lastName ? 'last-name-error' : undefined}
-                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                      fieldErrors.lastName ? 'border-red-500' : 'border-[rgb(var(--line))]'
-                    }`}
-                    placeholder="Morgan"
-                    required
-                  />
-                  {fieldErrors.lastName && (
-                    <p id="last-name-error" className="mt-2 text-xs font-bold text-red-500">
-                      {fieldErrors.lastName}
-                    </p>
-                  )}
-                </label>
-              </div>
+          <RegistrationFields
+            isLogin={view.isLogin}
+            fieldErrors={fieldErrors}
+            latestBirthDate={view.latestBirthDate}
+          />
 
-              <label className="block">
-                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                  Date of Birth
-                </span>
-                <div className="relative">
-                  <Calendar className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
-                  <input
-                    name="dateOfBirth"
-                    type="date"
-                    autoComplete="bday"
-                    max={latestBirthDate}
-                    aria-invalid={Boolean(fieldErrors.dateOfBirth)}
-                    aria-describedby={fieldErrors.dateOfBirth ? 'date-of-birth-error' : undefined}
-                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                      fieldErrors.dateOfBirth ? 'border-red-500' : 'border-[rgb(var(--line))]'
-                    }`}
-                    required
-                  />
-                </div>
-                {fieldErrors.dateOfBirth && (
-                  <p id="date-of-birth-error" className="mt-2 text-xs font-bold text-red-500">
-                    {fieldErrors.dateOfBirth}
-                  </p>
-                )}
-              </label>
-            </>
-          )}
+          <EmailField fieldErrors={fieldErrors} />
 
-          <label className="block">
-            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-              Email Address
-            </span>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
-              <input
-                name="email"
-                type="email"
-                autoComplete="email"
-                aria-invalid={Boolean(fieldErrors.email)}
-                aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-                className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                  fieldErrors.email ? 'border-red-500' : 'border-[rgb(var(--line))]'
-                }`}
-                placeholder="client@example.com"
-                required
-              />
-            </div>
-            {fieldErrors.email && (
-              <p id="email-error" className="mt-2 text-xs font-bold text-red-500">
-                {fieldErrors.email}
-              </p>
-            )}
-          </label>
+          <AuthEntryField
+            isLogin={view.isLogin}
+            fieldErrors={fieldErrors}
+            view={view}
+            showPassword={showPassword}
+            togglePasswordVisibility={togglePasswordVisibility}
+          />
 
-          <label className="block">
-            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-              Password
-            </span>
-            <div className="relative">
-              <input
-                name="password"
-                type={authEntryInputType}
-                autoComplete={authEntryAutoComplete}
-                minLength={authEntryMinLength}
-                pattern={authEntryPattern}
-                aria-invalid={Boolean(fieldErrors.password)}
-                aria-describedby={authEntryDescriptionId}
-                className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                  fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
-                }`}
-                placeholder={authEntryPlaceholder}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((current) => !current)}
-                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
-              >
-                <AuthEntryVisibilityIcon size={17} strokeWidth={1.8} />
-              </button>
-            </div>
-            {!isLogin && !fieldErrors.password && (
-              <p id={AUTH_FIELD_IDS.entryRequirements} className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
-                Minimum 10 characters with 1 uppercase letter, 1 number, and 1 special character.
-              </p>
-            )}
-            {fieldErrors.password && (
-              <p id={AUTH_FIELD_IDS.entryError} className="mt-2 text-xs font-bold leading-5 text-red-500">
-                {fieldErrors.password}
-              </p>
-            )}
-          </label>
+          <ConfirmAuthEntryField
+            isLogin={view.isLogin}
+            fieldErrors={fieldErrors}
+            view={view}
+            showPassword={showPassword}
+            togglePasswordVisibility={togglePasswordVisibility}
+          />
 
-          {!isLogin && (
-            <label className="block">
-              <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                Confirm Password
-              </span>
-              <div className="relative">
-                <input
-                  name="confirmPassword"
-                  type={authEntryInputType}
-                  autoComplete={AUTH_INPUT_AUTOCOMPLETE.newEntry}
-                  minLength={10}
-                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
-                  aria-describedby={confirmAuthEntryErrorId}
-                  className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                    fieldErrors.confirmPassword ? 'border-red-500' : 'border-[rgb(var(--line))]'
-                  }`}
-                  placeholder={AUTH_FIELD_PLACEHOLDERS.confirmEntry}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                  className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  aria-pressed={showPassword}
-                >
-                  <AuthEntryVisibilityIcon size={17} strokeWidth={1.8} />
-                </button>
-              </div>
-              {fieldErrors.confirmPassword && (
-                <p id={AUTH_FIELD_IDS.confirmEntryError} className="mt-2 text-xs font-bold leading-5 text-red-500">
-                  {fieldErrors.confirmPassword}
-                </p>
-              )}
-            </label>
-          )}
-
-          {error && (
-            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
-              {error}
-            </p>
-          )}
-
-          {success && (
-            <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500" role="status">
-              {success}
-            </p>
-          )}
+          <AuthFeedbackMessages error={error} success={success} />
 
           <button
             type="submit"
             disabled={isSubmitting}
             className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
           >
-            {submitButtonText}
+            {view.submitButtonText}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
-          {isLogin ? 'Need an invitation?' : 'Already approved?'}{' '}
-          <button
-            type="button"
-            onClick={() => onModeChange(isLogin ? 'register' : 'login')}
-            className="font-extrabold text-[rgb(var(--gold))] hover:underline"
-          >
-            {isLogin ? 'Request access' : 'Login instead'}
-          </button>
-        </p>
+        <AuthModePrompt isLogin={view.isLogin} onModeChange={onModeChange} />
       </section>
     </div>
   );
