@@ -4,6 +4,7 @@ import com.elsys.safebanking.dto.TransferRequestDto;
 import com.elsys.safebanking.dto.TransferResponseDto;
 import com.elsys.safebanking.service.TransferService;
 import com.elsys.safebanking.routes.ApiRoutes;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,7 +22,7 @@ public class TransactionController {
     }
 
     @PostMapping("/transfer")
-    public ResponseEntity<TransferResponseDto> transfer(@RequestBody TransferRequestDto request) {
-        return ResponseEntity.accepted().body(transferService.transfer(request));
+    public ResponseEntity<TransferResponseDto> transfer(@Valid @RequestBody TransferRequestDto request) {
+        return ResponseEntity.ok(transferService.transfer(request));
     }
 }

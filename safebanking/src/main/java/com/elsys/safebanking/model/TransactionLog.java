@@ -1,30 +1,32 @@
 package com.elsys.safebanking.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-
+import jakarta.persistence.*;
 import java.time.Instant;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
 @Entity
 @Table(name = "transaction_logs")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class TransactionLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "logID")
     private Long logId;
 
-    @Column(nullable = false)
-    private Long tranId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tranID", nullable = false)
+    private BankingTransaction transaction;
 
-    @Column(nullable = false)
+    @Column(name = "log_entry_text", nullable = false, columnDefinition = "TEXT")
     private String logEntryText;
 
-    @Column(nullable = false)
+    @Column(name = "time_stamp", nullable = false)
     private Instant timeStamp;
-
-    // Placeholder: link logs to the transaction aggregate when the mapping strategy is finalized.
 }
