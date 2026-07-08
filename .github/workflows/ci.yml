@@ -86,6 +86,7 @@ jobs:
 
   backend:
     name: Backend Verify
+    needs: frontend
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -98,6 +99,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: frontend-static
+          path: safebanking/src/main/resources/static
 
       - name: Set up Java
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
