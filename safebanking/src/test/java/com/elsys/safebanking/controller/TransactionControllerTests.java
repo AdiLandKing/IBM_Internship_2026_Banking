@@ -38,8 +38,7 @@ class TransactionControllerTests {
     @MockitoBean
     private JwtService jwtService;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     void transfer_WithValidRequest_ReturnsOk() throws Exception {
