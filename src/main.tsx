@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Activity, ArrowLeft, ChartPie, Landmark, LockKeyhole, Mail, Moon, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, Calendar, ChartPie, Landmark, LockKeyhole, Mail, Moon, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './styles.css';
 
@@ -142,6 +142,72 @@ type ApiErrorResponse = {
   message?: string;
   fieldErrors?: Record<string, string>;
 };
+
+type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password', string>>;
+
+const PASSWORD_REQUIREMENTS = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
+
+function hasInteger(value: string) {
+  return /\d/.test(value);
+}
+
+function isValidRegistrationPassword(password: string) {
+  return password.length >= 10
+    && /[A-Z]/.test(password)
+    && /\d/.test(password)
+    && /[^A-Za-z0-9]/.test(password);
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isValidDateOfBirth(value: string) {
+  if (!value) return false;
+
+  const selectedDate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return !Number.isNaN(selectedDate.getTime()) && selectedDate <= today;
+}
+
+function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
+  const email = String(formData.get('email') ?? '').trim();
+  const firstName = String(formData.get('firstName') ?? '').trim();
+  const lastName = String(formData.get('lastName') ?? '').trim();
+  const password = String(formData.get('password') ?? '');
+  const dateOfBirth = String(formData.get('dateOfBirth') ?? '');
+  const validationErrors: AuthFieldErrors = {};
+
+  if (!email) {
+    validationErrors.email = 'Email address is required.';
+  } else if (!isValidEmail(email)) {
+    validationErrors.email = 'Enter a valid email address.';
+  }
+
+  if (!firstName) {
+    validationErrors.firstName = 'First name is required.';
+  } else if (hasInteger(firstName)) {
+    validationErrors.firstName = 'First name cannot contain numbers.';
+  }
+
+  if (!lastName) {
+    validationErrors.lastName = 'Last name is required.';
+  } else if (hasInteger(lastName)) {
+    validationErrors.lastName = 'Last name cannot contain numbers.';
+  }
+
+  if (!isValidDateOfBirth(dateOfBirth)) {
+    validationErrors.dateOfBirth = 'Enter a valid date of birth.';
+  }
+
+  if (!isValidRegistrationPassword(password)) {
+    validationErrors.password = PASSWORD_REQUIREMENTS;
+  }
+
+  return validationErrors;
+}
 
 async function authenticate(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
   const response = await fetch(`${API_BASE_URL}/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
@@ -1004,6 +1070,7 @@ function AuthPopup({
 }) {
   const [error, setError] = React.useState('');
   const [success, setSuccess] = React.useState('');
+  const [fieldErrors, setFieldErrors] = React.useState<AuthFieldErrors>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
@@ -1025,20 +1092,32 @@ function AuthPopup({
   React.useEffect(() => {
     setError('');
     setSuccess('');
+    setFieldErrors({});
     setIsSubmitting(false);
   }, [mode, isOpen]);
 
   if (!isOpen) return null;
 
   const isLogin = mode === 'login';
+  const todayDate = new Date().toISOString().slice(0, 10);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setSuccess('');
-    setIsSubmitting(true);
+    setFieldErrors({});
 
     const formData = new FormData(event.currentTarget);
+    const validationErrors = isLogin ? {} : getRegistrationValidationErrors(formData);
+
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      setError('Please fix the highlighted registration fields.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
     const email = String(formData.get('email') ?? '').trim();
     const password = String(formData.get('password') ?? '');
     const payload: Record<string, string> = isLogin
@@ -1048,6 +1127,7 @@ function AuthPopup({
           password,
           firstName: String(formData.get('firstName') ?? '').trim(),
           lastName: String(formData.get('lastName') ?? '').trim(),
+          dateOfBirth: String(formData.get('dateOfBirth') ?? ''),
         };
 
     try {
@@ -1122,36 +1202,85 @@ function AuthPopup({
         <form
           className="mt-7 space-y-4"
           onSubmit={handleSubmit}
+          noValidate={!isLogin}
         >
           {!isLogin && (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+                    First Name
+                  </span>
+                  <input
+                    name="firstName"
+                    type="text"
+                    autoComplete="given-name"
+                    pattern="^[^0-9]+$"
+                    aria-invalid={Boolean(fieldErrors.firstName)}
+                    aria-describedby={fieldErrors.firstName ? 'first-name-error' : undefined}
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                      fieldErrors.firstName ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    placeholder="Alex"
+                    required
+                  />
+                  {fieldErrors.firstName && (
+                    <p id="first-name-error" className="mt-2 text-xs font-bold text-red-500">
+                      {fieldErrors.firstName}
+                    </p>
+                  )}
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+                    Last Name
+                  </span>
+                  <input
+                    name="lastName"
+                    type="text"
+                    autoComplete="family-name"
+                    pattern="^[^0-9]+$"
+                    aria-invalid={Boolean(fieldErrors.lastName)}
+                    aria-describedby={fieldErrors.lastName ? 'last-name-error' : undefined}
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                      fieldErrors.lastName ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    placeholder="Morgan"
+                    required
+                  />
+                  {fieldErrors.lastName && (
+                    <p id="last-name-error" className="mt-2 text-xs font-bold text-red-500">
+                      {fieldErrors.lastName}
+                    </p>
+                  )}
+                </label>
+              </div>
+
               <label className="block">
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                  First Name
+                  Date of Birth
                 </span>
-                <input
-                  name="firstName"
-                  type="text"
-                  autoComplete="given-name"
-                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                  placeholder="Alex"
-                  required
-                />
+                <div className="relative">
+                  <Calendar className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
+                  <input
+                    name="dateOfBirth"
+                    type="date"
+                    autoComplete="bday"
+                    max={todayDate}
+                    aria-invalid={Boolean(fieldErrors.dateOfBirth)}
+                    aria-describedby={fieldErrors.dateOfBirth ? 'date-of-birth-error' : undefined}
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                      fieldErrors.dateOfBirth ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    required
+                  />
+                </div>
+                {fieldErrors.dateOfBirth && (
+                  <p id="date-of-birth-error" className="mt-2 text-xs font-bold text-red-500">
+                    {fieldErrors.dateOfBirth}
+                  </p>
+                )}
               </label>
-              <label className="block">
-                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
-                  Last Name
-                </span>
-                <input
-                  name="lastName"
-                  type="text"
-                  autoComplete="family-name"
-                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                  placeholder="Morgan"
-                  required
-                />
-              </label>
-            </div>
+            </>
           )}
 
           <label className="block">
@@ -1164,11 +1293,20 @@ function AuthPopup({
                 name="email"
                 type="email"
                 autoComplete="email"
-                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+                className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                  fieldErrors.email ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                }`}
                 placeholder="client@example.com"
                 required
               />
             </div>
+            {fieldErrors.email && (
+              <p id="email-error" className="mt-2 text-xs font-bold text-red-500">
+                {fieldErrors.email}
+              </p>
+            )}
           </label>
 
           <label className="block">
@@ -1179,11 +1317,26 @@ function AuthPopup({
               name="password"
               type="password"
               autoComplete={isLogin ? 'current-password' : 'new-password'}
-              minLength={isLogin ? undefined : 8}
-              className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+              minLength={isLogin ? undefined : 10}
+              pattern={isLogin ? undefined : '^(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{10,}$'}
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? 'password-error' : !isLogin ? 'password-requirements' : undefined}
+              className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
+              }`}
               placeholder={isLogin ? 'Enter your password' : 'Create a password'}
               required
             />
+            {!isLogin && !fieldErrors.password && (
+              <p id="password-requirements" className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+                Minimum 10 characters with 1 uppercase letter, 1 number, and 1 special character.
+              </p>
+            )}
+            {fieldErrors.password && (
+              <p id="password-error" className="mt-2 text-xs font-bold leading-5 text-red-500">
+                {fieldErrors.password}
+              </p>
+            )}
           </label>
 
           {error && (
