@@ -9,14 +9,14 @@ public record CreateBankAccountRequest(
         @NotBlank
         String accountName,
 
+        @NotBlank
+        String iban,
+
         @NotNull
         Integer balance,
 
         @NotBlank
         @Size(min = 3, max = 3)
-        String currency,
-
-        @NotNull
-        Long userId
+        String currency
 ) {
 }

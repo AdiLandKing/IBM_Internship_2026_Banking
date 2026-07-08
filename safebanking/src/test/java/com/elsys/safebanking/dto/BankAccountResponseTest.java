@@ -17,7 +17,7 @@ class BankAccountResponseTest {
      * The accountId stays null until persisted — fine here since we test mapping, not persistence.
      */
     private BankAccount buildAccount(String name, Integer balance, String currency, User owner) {
-        return new BankAccount(name, balance, currency, owner);
+        return new BankAccount(name, "GB29NWBK60161331926819", balance, currency, owner);
     }
 
     // -------------------------------------------------------------------------
@@ -32,10 +32,9 @@ class BankAccountResponseTest {
         BankAccountResponse response = BankAccountResponse.from(account);
 
         assertThat(response.accountName()).isEqualTo("Savings");
+        assertThat(response.iban()).isEqualTo("GB29NWBK60161331926819");
         assertThat(response.balance()).isEqualTo(1500);
         assertThat(response.currency()).isEqualTo("EUR");
-        // id is null until persisted; userId is forwarded from owner.getId()
-        assertThat(response.userId()).isNull();
         assertThat(response.accountId()).isNull();
     }
 
@@ -61,14 +60,13 @@ class BankAccountResponseTest {
     }
 
     @Test
-    void from_propagatesOwnerUserId() {
+    void from_propagatesIban() {
         User owner = new User("biz@example.com", "hash", "Dave", "Lee");
         BankAccount account = buildAccount("Business", 10000, "BGN", owner);
 
         BankAccountResponse response = BankAccountResponse.from(account);
 
-        // id is null until persisted — just verify the forwarding path doesn't throw
-        assertThat(response.userId()).isNull();
+        assertThat(response.iban()).isEqualTo("GB29NWBK60161331926819");
     }
 
     // -------------------------------------------------------------------------
@@ -77,8 +75,8 @@ class BankAccountResponseTest {
 
     @Test
     void recordEquality_twoIdenticalInstancesAreEqual() {
-        BankAccountResponse a = new BankAccountResponse(1, "Savings", 1000, "EUR", 5L);
-        BankAccountResponse b = new BankAccountResponse(1, "Savings", 1000, "EUR", 5L);
+        BankAccountResponse a = new BankAccountResponse(1, "Savings", "GB29NWBK60161331926819", 1000, "EUR");
+        BankAccountResponse b = new BankAccountResponse(1, "Savings", "GB29NWBK60161331926819", 1000, "EUR");
 
         assertThat(a).isEqualTo(b);
         assertThat(a.hashCode()).isEqualTo(b.hashCode());
@@ -86,8 +84,8 @@ class BankAccountResponseTest {
 
     @Test
     void recordEquality_differentBalanceMeansNotEqual() {
-        BankAccountResponse a = new BankAccountResponse(1, "Savings", 1000, "EUR", 5L);
-        BankAccountResponse b = new BankAccountResponse(1, "Savings", 9999, "EUR", 5L);
+        BankAccountResponse a = new BankAccountResponse(1, "Savings", "GB29NWBK60161331926819", 1000, "EUR");
+        BankAccountResponse b = new BankAccountResponse(1, "Savings", "GB29NWBK60161331926819", 9999, "EUR");
 
         assertThat(a).isNotEqualTo(b);
     }

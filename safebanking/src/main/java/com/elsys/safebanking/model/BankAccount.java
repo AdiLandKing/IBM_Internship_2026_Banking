@@ -25,6 +25,9 @@ public class BankAccount {
     @Column(name = "account_name", nullable = false)
     private String accountName;
 
+    @Column(nullable = false, unique = true, length = 34)
+    private String iban;
+
     @Column(nullable = false)
     private Integer balance;
 
@@ -38,8 +41,9 @@ public class BankAccount {
     protected BankAccount() {
     }
 
-    public BankAccount(String accountName, Integer balance, String currency, User owner) {
+    public BankAccount(String accountName, String iban, Integer balance, String currency, User owner) {
         this.accountName = accountName;
+        this.iban = iban;
         this.balance = balance;
         this.currency = currency;
         this.owner = owner;

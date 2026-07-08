@@ -44,12 +44,13 @@ class BankAccountRepositoryTest {
 
     @Test
     void save_persistsAccountAndAssignsId() {
-        BankAccount account = new BankAccount("Savings", 1000, "EUR", userA);
+        BankAccount account = new BankAccount("Savings", "GB82WEST12345698765432", 1000, "EUR", userA);
 
         BankAccount saved = bankAccountRepository.save(account);
 
         assertThat(saved.getAccountId()).isNotNull();
         assertThat(saved.getAccountName()).isEqualTo("Savings");
+        assertThat(saved.getIban()).isEqualTo("GB82WEST12345698765432");
         assertThat(saved.getBalance()).isEqualTo(1000);
         assertThat(saved.getCurrency()).isEqualTo("EUR");
         assertThat(saved.getOwner().getId()).isEqualTo(userA.getId());
@@ -57,7 +58,7 @@ class BankAccountRepositoryTest {
 
     @Test
     void findById_returnsAccount_whenIdExists() {
-        BankAccount saved = bankAccountRepository.save(new BankAccount("Current", 500, "USD", userA));
+        BankAccount saved = bankAccountRepository.save(new BankAccount("Current", "GB33BUKB20201555555555", 500, "USD", userA));
 
         Optional<BankAccount> found = bankAccountRepository.findById(saved.getAccountId());
 
@@ -78,9 +79,9 @@ class BankAccountRepositoryTest {
 
     @Test
     void findByOwnerId_returnsAllAccountsForThatUser() {
-        bankAccountRepository.save(new BankAccount("Savings",  1000, "EUR", userA));
-        bankAccountRepository.save(new BankAccount("Current",   200, "USD", userA));
-        bankAccountRepository.save(new BankAccount("Business", 9999, "GBP", userB));
+        bankAccountRepository.save(new BankAccount("Savings",  "GB11NWBK60161331926819", 1000, "EUR", userA));
+        bankAccountRepository.save(new BankAccount("Current",  "GB22NWBK60161331926820", 200,  "USD", userA));
+        bankAccountRepository.save(new BankAccount("Business", "GB33NWBK60161331926821", 9999, "GBP", userB));
 
         List<BankAccount> results = bankAccountRepository.findByOwnerId(userA.getId());
 
@@ -92,7 +93,7 @@ class BankAccountRepositoryTest {
 
     @Test
     void findByOwnerId_returnsEmpty_whenUserHasNoAccounts() {
-        bankAccountRepository.save(new BankAccount("Savings", 500, "EUR", userA));
+        bankAccountRepository.save(new BankAccount("Savings", "GB44NWBK60161331926822", 500, "EUR", userA));
 
         List<BankAccount> results = bankAccountRepository.findByOwnerId(userB.getId());
 
@@ -112,7 +113,7 @@ class BankAccountRepositoryTest {
 
     @Test
     void updateBalance_persistsNewValue() {
-        BankAccount account = bankAccountRepository.save(new BankAccount("Savings", 1000, "EUR", userA));
+        BankAccount account = bankAccountRepository.save(new BankAccount("Savings", "GB55NWBK60161331926823", 1000, "EUR", userA));
 
         account.updateBalance(2500);
         bankAccountRepository.save(account);
@@ -123,7 +124,7 @@ class BankAccountRepositoryTest {
 
     @Test
     void updateAccountName_persistsNewValue() {
-        BankAccount account = bankAccountRepository.save(new BankAccount("Savings", 1000, "EUR", userA));
+        BankAccount account = bankAccountRepository.save(new BankAccount("Savings", "GB66NWBK60161331926824", 1000, "EUR", userA));
 
         account.updateAccountName("Premium Savings");
         bankAccountRepository.save(account);
@@ -138,7 +139,7 @@ class BankAccountRepositoryTest {
 
     @Test
     void delete_removesAccount() {
-        BankAccount account = bankAccountRepository.save(new BankAccount("Temp", 0, "BGN", userA));
+        BankAccount account = bankAccountRepository.save(new BankAccount("Temp", "GB77NWBK60161331926825", 0, "BGN", userA));
         Integer id = account.getAccountId();
 
         bankAccountRepository.deleteById(id);
@@ -148,8 +149,8 @@ class BankAccountRepositoryTest {
 
     @Test
     void deleteUser_cascadeNotRequired_butOtherUserAccountsRemain() {
-        bankAccountRepository.save(new BankAccount("Savings", 100, "EUR", userA));
-        bankAccountRepository.save(new BankAccount("Current", 200, "EUR", userB));
+        bankAccountRepository.save(new BankAccount("Savings", "GB88NWBK60161331926826", 100, "EUR", userA));
+        bankAccountRepository.save(new BankAccount("Current", "GB99NWBK60161331926827", 200, "EUR", userB));
 
         // Delete userA's accounts first, then the user
         bankAccountRepository.deleteAll(bankAccountRepository.findByOwnerId(userA.getId()));
@@ -165,9 +166,9 @@ class BankAccountRepositoryTest {
 
     @Test
     void findAll_returnsEveryAccount() {
-        bankAccountRepository.save(new BankAccount("A1", 100, "EUR", userA));
-        bankAccountRepository.save(new BankAccount("A2", 200, "EUR", userA));
-        bankAccountRepository.save(new BankAccount("B1", 300, "USD", userB));
+        bankAccountRepository.save(new BankAccount("A1", "GB01NWBK60161331926828", 100, "EUR", userA));
+        bankAccountRepository.save(new BankAccount("A2", "GB02NWBK60161331926829", 200, "EUR", userA));
+        bankAccountRepository.save(new BankAccount("B1", "GB03NWBK60161331926830", 300, "USD", userB));
 
         List<BankAccount> all = bankAccountRepository.findAll();
 
