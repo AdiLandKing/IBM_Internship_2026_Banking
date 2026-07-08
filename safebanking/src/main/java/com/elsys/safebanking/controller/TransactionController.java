@@ -3,7 +3,6 @@ package com.elsys.safebanking.controller;
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
 import com.elsys.safebanking.service.TransferService;
-import com.elsys.safebanking.routes.ApiRoutes;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping(ApiRoutes.TRANSACTIONS)
+@RequestMapping("/api/v1/transactions")
 public class TransactionController {
 
     private final TransferService transferService;
