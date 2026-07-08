@@ -147,6 +147,7 @@ type ApiErrorResponse = {
 type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password' | 'confirmPassword', string>>;
 
 const PASSWORD_REQUIREMENTS = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
+const REGISTRATION_PASSWORD_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
 
 function hasInteger(value: string) {
   return /\d/.test(value);
@@ -160,7 +161,15 @@ function isValidRegistrationPassword(password: string) {
 }
 
 function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  if (!value || value.length > 320 || value.includes(' ')) return false;
+
+  const emailParts = value.split('@');
+  if (emailParts.length !== 2) return false;
+
+  const [localPart, domain] = emailParts;
+  if (!localPart || !domain || !domain.includes('.')) return false;
+
+  return domain.split('.').every((part) => part.length > 0);
 }
 
 function isValidDateOfBirth(value: string) {
@@ -179,13 +188,20 @@ function getLatestValidBirthDate() {
   return latestDate.toISOString().slice(0, 10);
 }
 
+function getFormString(formData: FormData, key: string, trim = false) {
+  const value = formData.get(key);
+  if (typeof value !== 'string') return '';
+
+  return trim ? value.trim() : value;
+}
+
 function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
-  const email = String(formData.get('email') ?? '').trim();
-  const firstName = String(formData.get('firstName') ?? '').trim();
-  const lastName = String(formData.get('lastName') ?? '').trim();
-  const password = String(formData.get('password') ?? '');
-  const confirmPassword = String(formData.get('confirmPassword') ?? '');
-  const dateOfBirth = String(formData.get('dateOfBirth') ?? '');
+  const email = getFormString(formData, 'email', true);
+  const firstName = getFormString(formData, 'firstName', true);
+  const lastName = getFormString(formData, 'lastName', true);
+  const password = getFormString(formData, 'password');
+  const confirmPassword = getFormString(formData, 'confirmPassword');
+  const dateOfBirth = getFormString(formData, 'dateOfBirth');
   const validationErrors: AuthFieldErrors = {};
 
   if (!email) {
@@ -1117,6 +1133,16 @@ function AuthPopup({
   const isLogin = mode === 'login';
   const latestBirthDate = getLatestValidBirthDate();
   const PasswordVisibilityIcon = showPassword ? EyeOff : Eye;
+  const passwordInputType = showPassword ? 'text' : 'password';
+  const passwordAutoComplete = isLogin ? 'current-password' : 'new-password';
+  const passwordMinLength = isLogin ? undefined : 10;
+  const passwordPattern = isLogin ? undefined : REGISTRATION_PASSWORD_PATTERN;
+  const passwordRequirementsId = isLogin ? undefined : 'password-requirements';
+  const passwordErrorId = fieldErrors.password ? 'password-error' : undefined;
+  const passwordDescriptionId = passwordErrorId ?? passwordRequirementsId;
+  const passwordPlaceholder = isLogin ? 'Enter your password' : 'Create a password';
+  const authSubmitText = isLogin ? 'Login Securely' : 'Register';
+  const submitButtonText = isSubmitting ? 'Please wait...' : authSubmitText;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1135,16 +1161,16 @@ function AuthPopup({
 
     setIsSubmitting(true);
 
-    const email = String(formData.get('email') ?? '').trim();
-    const password = String(formData.get('password') ?? '');
+    const email = getFormString(formData, 'email', true);
+    const password = getFormString(formData, 'password');
     const payload: Record<string, string> = isLogin
       ? { email, password }
       : {
           email,
           password,
-          firstName: String(formData.get('firstName') ?? '').trim(),
-          lastName: String(formData.get('lastName') ?? '').trim(),
-          dateOfBirth: String(formData.get('dateOfBirth') ?? ''),
+          firstName: getFormString(formData, 'firstName', true),
+          lastName: getFormString(formData, 'lastName', true),
+          dateOfBirth: getFormString(formData, 'dateOfBirth'),
         };
 
     try {
@@ -1333,12 +1359,12 @@ function AuthPopup({
             <div className="relative">
               <input
                 name="password"
-                type={showPassword ? 'text' : 'password'}
-                autoComplete={isLogin ? 'current-password' : 'new-password'}
-                minLength={isLogin ? undefined : 10}
-                pattern={isLogin ? undefined : '^(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{10,}$'}
+                type={passwordInputType}
+                autoComplete={passwordAutoComplete}
+                minLength={passwordMinLength}
+                pattern={passwordPattern}
                 aria-invalid={Boolean(fieldErrors.password)}
-                aria-describedby={fieldErrors.password ? 'password-error' : !isLogin ? 'password-requirements' : undefined}
+                aria-describedby={passwordDescriptionId}
                 className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-4 pr-12 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none transition placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
                   fieldErrors.password ? 'border-red-500' : 'border-[rgb(var(--line))]'
                 }`}
@@ -1375,7 +1401,7 @@ function AuthPopup({
               <div className="relative">
                 <input
                   name="confirmPassword"
-                  type={showPassword ? 'text' : 'password'}
+                  type={passwordInputType}
                   autoComplete="new-password"
                   minLength={10}
                   aria-invalid={Boolean(fieldErrors.confirmPassword)}
@@ -1421,7 +1447,7 @@ function AuthPopup({
             disabled={isSubmitting}
             className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
           >
-            {isSubmitting ? 'Please wait...' : isLogin ? 'Login Securely' : 'Register'}
+            {submitButtonText}
           </button>
         </form>
 
