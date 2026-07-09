@@ -1,13 +1,19 @@
 package com.elsys.safebanking.model;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.Instant;
 
 @Getter
 @Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "transactions")
 public class BankingTransaction {
@@ -40,5 +46,4 @@ public class BankingTransaction {
     @Column(nullable = false, name = "exchange_rate_used", precision = 18, scale = 6)
     private BigDecimal exchangeRateUsed;
 
-    protected BankingTransaction() {}
 }
