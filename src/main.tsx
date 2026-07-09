@@ -197,7 +197,7 @@ type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'date
 const AUTH_RULE_MESSAGE = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
 const REGISTRATION_AUTH_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
 const EPIN_LENGTH = 6;
-const EPIN_PATTERN = new RegExp(`^\\d{${EPIN_LENGTH}}$`);
+const EPIN_PATTERN = new RegExp(String.raw`^\d{${EPIN_LENGTH}}$`);
 const EPIN_INPUT_PATTERN = `[0-9]{${EPIN_LENGTH}}`;
 const EPIN_VALIDATION_MESSAGE = `E-PIN must contain exactly ${EPIN_LENGTH} digits.`;
 const AUTH_INPUT_AUTOCOMPLETE = {
