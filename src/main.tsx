@@ -949,9 +949,8 @@ function AccountsPage({
             className="absolute inset-0 bg-black/65 backdrop-blur-sm"
             onClick={() => setIsCreateAccountOpen(false)}
           />
-          <section
-            role="dialog"
-            aria-modal="true"
+          <dialog
+            open
             aria-labelledby="create-account-title"
             className="relative w-full max-w-[460px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
           >
@@ -1015,7 +1014,7 @@ function AccountsPage({
                 Create account
               </button>
             </form>
-          </section>
+          </dialog>
         </div>
       )}
     </section>
@@ -1095,9 +1094,8 @@ function ChangeEPinModal({
         className="absolute inset-0 bg-black/65 backdrop-blur-sm"
         onClick={isSubmitting ? undefined : onClose}
       />
-      <section
-        role="dialog"
-        aria-modal="true"
+      <dialog
+        open
         aria-labelledby="change-epin-title"
         className="relative w-full max-w-[440px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
       >
@@ -1210,7 +1208,7 @@ function ChangeEPinModal({
             </button>
           </div>
         </form>
-      </section>
+      </dialog>
     </div>
   );
 }
@@ -1270,6 +1268,13 @@ function UserPage({
     setEPinError('');
     setEPinSuccess('Your E-PIN was changed successfully.');
     setIsChangeEPinOpen(false);
+  }
+
+  let ePinDisplay = '••••••';
+  if (isEPinLoading) {
+    ePinDisplay = 'Loading...';
+  } else if (isEPinVisible && ePin) {
+    ePinDisplay = ePin;
   }
 
   return (
@@ -1359,7 +1364,7 @@ function UserPage({
                 <div className="mt-3 flex items-center gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3">
                   <KeyRound size={17} strokeWidth={1.8} className="shrink-0 text-[rgb(var(--text-muted))]" />
                   <span className="min-w-0 flex-1 font-mono text-base tracking-[0.2em] text-[rgb(var(--text-strong))]">
-                    {isEPinLoading ? 'Loading...' : isEPinVisible ? ePin : '••••••'}
+                    {ePinDisplay}
                   </span>
                   <button
                     type="button"
@@ -1373,7 +1378,7 @@ function UserPage({
                   </button>
                 </div>
                 {ePinError && <p className="mt-3 text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
-                {ePinSuccess && <p className="mt-3 text-sm font-bold text-emerald-500" role="status">{ePinSuccess}</p>}
+                {ePinSuccess && <output className="mt-3 block text-sm font-bold text-emerald-500">{ePinSuccess}</output>}
                 <button
                   type="button"
                   onClick={() => {
@@ -2419,9 +2424,9 @@ function AuthFeedbackMessages({ error, success }: { error: string; success: stri
       )}
 
       {success && (
-        <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500" role="status">
+        <output className="block rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500">
           {success}
-        </p>
+        </output>
       )}
     </>
   );
@@ -2507,9 +2512,8 @@ function AuthPopup({
         className="absolute inset-0 bg-black/65 backdrop-blur-sm"
         onClick={onClose}
       />
-      <section
-        role="dialog"
-        aria-modal="true"
+      <dialog
+        open
         aria-labelledby="auth-title"
         className="relative max-h-[calc(100vh-4rem)] w-full max-w-[460px] overflow-y-auto rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
       >
@@ -2567,7 +2571,7 @@ function AuthPopup({
         </form>
 
         <AuthModePrompt isLogin={view.isLogin} onModeChange={onModeChange} />
-      </section>
+      </dialog>
     </div>
   );
 }
