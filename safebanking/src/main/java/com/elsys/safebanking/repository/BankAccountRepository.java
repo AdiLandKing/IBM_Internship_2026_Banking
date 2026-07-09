@@ -1,10 +1,13 @@
+
 package com.elsys.safebanking.repository;
 
 import com.elsys.safebanking.model.BankAccount;
-import java.util.List;
+import com.elsys.safebanking.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface BankAccountRepository extends JpaRepository<BankAccount, Integer> {
+import java.util.List;
 
-    List<BankAccount> findByOwnerId(Long userId);
+public interface BankAccountRepository extends JpaRepository<BankAccount, Integer> {
+    long countByOwner(User owner);
+    List<BankAccount> findByOwnerId(Long ownerId);
 }
