@@ -24,6 +24,36 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(HttpStatus.UNAUTHORIZED.value(), "Unauthorized", exception.getMessage()));
     }
 
+    @ExceptionHandler(EPinVerificationException.class)
+    ResponseEntity<ApiError> handleEPinVerification(EPinVerificationException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiError.of(
+                        HttpStatus.UNAUTHORIZED.value(),
+                        "E-PIN Verification Failed",
+                        exception.getMessage()
+                ));
+    }
+
+    @ExceptionHandler(EPinReuseException.class)
+    ResponseEntity<ApiError> handleEPinReuse(EPinReuseException exception) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(
+                        HttpStatus.BAD_REQUEST.value(),
+                        "Invalid E-PIN Change",
+                        exception.getMessage()
+                ));
+    }
+
+    @ExceptionHandler(EPinProtectionException.class)
+    ResponseEntity<ApiError> handleEPinProtection() {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiError.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                        "E-PIN Processing Failed",
+                        "Unable to process E-PIN securely"
+                ));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();

@@ -196,6 +196,10 @@ type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'date
 
 const AUTH_RULE_MESSAGE = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
 const REGISTRATION_AUTH_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
+const EPIN_LENGTH = 6;
+const EPIN_PATTERN = new RegExp(`^\\d{${EPIN_LENGTH}}$`);
+const EPIN_INPUT_PATTERN = `[0-9]{${EPIN_LENGTH}}`;
+const EPIN_VALIDATION_MESSAGE = `E-PIN must contain exactly ${EPIN_LENGTH} digits.`;
 const AUTH_INPUT_AUTOCOMPLETE = {
   loginEntry: 'current-password',
   newEntry: 'new-password',
@@ -213,6 +217,10 @@ const AUTH_FIELD_PLACEHOLDERS = {
 
 function hasInteger(value: string) {
   return /\d/.test(value);
+}
+
+function sanitizeEPin(value: string) {
+  return value.replace(/\D/g, '').slice(0, EPIN_LENGTH);
 }
 
 function isValidRegistrationPassword(password: string) {
@@ -289,8 +297,8 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
     validationErrors.dateOfBirth = 'Enter a valid date of birth.';
   }
 
-  if (ePin && !/^\d{6}$/.test(ePin)) {
-    validationErrors.ePin = 'E-PIN must contain exactly 6 digits.';
+  if (ePin && !EPIN_PATTERN.test(ePin)) {
+    validationErrors.ePin = EPIN_VALIDATION_MESSAGE;
   }
 
   if (!isValidRegistrationPassword(password)) {
@@ -1048,6 +1056,60 @@ function formatProfileDate(value: string | null, fallback: string) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(date);
 }
 
+function SecureEPinField({
+  label,
+  name,
+  value,
+  isVisible,
+  onChange,
+  onToggleVisibility,
+}: Readonly<{
+  label: string;
+  name: string;
+  value: string;
+  isVisible: boolean;
+  onChange: (value: string) => void;
+  onToggleVisibility: () => void;
+}>) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">{label}</span>
+      <div className="relative">
+        <input
+          name={name}
+          type={isVisible ? 'text' : 'password'}
+          inputMode="numeric"
+          autoComplete="off"
+          minLength={EPIN_LENGTH}
+          maxLength={EPIN_LENGTH}
+          pattern={EPIN_INPUT_PATTERN}
+          value={value}
+          onChange={(event) => onChange(sanitizeEPin(event.target.value))}
+          className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 pr-12 font-mono text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+          required
+        />
+        <button
+          type="button"
+          onClick={onToggleVisibility}
+          className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+          aria-label={isVisible ? `Hide ${label}` : `Show ${label}`}
+          aria-pressed={isVisible}
+        >
+          {isVisible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </div>
+    </label>
+  );
+}
+
+function validateEPinChange(currentPassword: string, currentEPin: string, newEPin: string) {
+  if (!currentPassword) return 'Enter your current password.';
+  if (!EPIN_PATTERN.test(currentEPin)) return `Current ${EPIN_VALIDATION_MESSAGE}`;
+  if (!EPIN_PATTERN.test(newEPin)) return `New ${EPIN_VALIDATION_MESSAGE}`;
+  if (currentEPin === newEPin) return 'New E-PIN must be different from the current E-PIN.';
+  return '';
+}
+
 function ChangeEPinModal({
   authSession,
   onClose,
@@ -1083,16 +1145,9 @@ function ChangeEPinModal({
 
     const formData = new FormData(event.currentTarget);
     const currentPassword = getFormString(formData, 'currentPassword');
-    if (!currentPassword) {
-      setError('Enter your current password.');
-      return;
-    }
-    if (!/^\d{6}$/.test(currentEPin)) {
-      setError('Current E-PIN must contain exactly 6 digits.');
-      return;
-    }
-    if (!/^\d{6}$/.test(newEPin)) {
-      setError('New E-PIN must contain exactly 6 digits.');
+    const validationError = validateEPinChange(currentPassword, currentEPin, newEPin);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -1151,60 +1206,22 @@ function ChangeEPinModal({
               autoFocus
             />
           </label>
-          <label className="block">
-            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Current E-PIN</span>
-            <div className="relative">
-              <input
-                name="currentEPin"
-                type={showCurrentEPin ? 'text' : 'password'}
-                inputMode="numeric"
-                autoComplete="off"
-                minLength={6}
-                maxLength={6}
-                pattern="[0-9]{6}"
-                value={currentEPin}
-                onChange={(event) => setCurrentEPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 pr-12 font-mono text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowCurrentEPin((visible) => !visible)}
-                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
-                aria-label={showCurrentEPin ? 'Hide current E-PIN' : 'Show current E-PIN'}
-                aria-pressed={showCurrentEPin}
-              >
-                {showCurrentEPin ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">New E-PIN</span>
-            <div className="relative">
-              <input
-                name="newEPin"
-                type={showNewEPin ? 'text' : 'password'}
-                inputMode="numeric"
-                autoComplete="off"
-                minLength={6}
-                maxLength={6}
-                pattern="[0-9]{6}"
-                value={newEPin}
-                onChange={(event) => setNewEPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 pr-12 font-mono text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewEPin((visible) => !visible)}
-                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
-                aria-label={showNewEPin ? 'Hide new E-PIN' : 'Show new E-PIN'}
-                aria-pressed={showNewEPin}
-              >
-                {showNewEPin ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-          </label>
+          <SecureEPinField
+            label="Current E-PIN"
+            name="currentEPin"
+            value={currentEPin}
+            isVisible={showCurrentEPin}
+            onChange={setCurrentEPin}
+            onToggleVisibility={() => setShowCurrentEPin((visible) => !visible)}
+          />
+          <SecureEPinField
+            label="New E-PIN"
+            name="newEPin"
+            value={newEPin}
+            isVisible={showNewEPin}
+            onChange={setNewEPin}
+            onToggleVisibility={() => setShowNewEPin((visible) => !visible)}
+          />
           {error && (
             <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
               {error}
@@ -2262,18 +2279,18 @@ function RegistrationFields({
             type="password"
             inputMode="numeric"
             autoComplete="off"
-            minLength={6}
-            maxLength={6}
-            pattern="[0-9]{6}"
+            minLength={EPIN_LENGTH}
+            maxLength={EPIN_LENGTH}
+            pattern={EPIN_INPUT_PATTERN}
             onInput={(event) => {
-              event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6);
+              event.currentTarget.value = sanitizeEPin(event.currentTarget.value);
             }}
             aria-invalid={Boolean(fieldErrors.ePin)}
             aria-describedby={fieldErrors.ePin ? 'registration-epin-error' : 'registration-epin-help'}
             className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none transition placeholder:tracking-normal placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
               fieldErrors.ePin ? 'border-red-500' : 'border-[rgb(var(--line))]'
             }`}
-            placeholder="6 digits"
+            placeholder={`${EPIN_LENGTH} digits`}
           />
         </div>
         {fieldErrors.ePin ? (

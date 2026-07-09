@@ -1,5 +1,6 @@
 package com.elsys.safebanking.model;
 
+import com.elsys.safebanking.validation.EPinPolicy;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,7 +13,6 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
-
 import lombok.Getter;
 
 @Getter
@@ -39,7 +39,7 @@ public class User {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
-    @Column(name = "e_pin", length = 255)
+    @Column(name = "e_pin", length = EPinPolicy.ENCRYPTED_COLUMN_LENGTH)
     private String ePin;
 
     @Enumerated(EnumType.STRING)

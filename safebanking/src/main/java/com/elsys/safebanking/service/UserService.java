@@ -4,12 +4,11 @@ import com.elsys.safebanking.dto.ChangeEPinRequest;
 import com.elsys.safebanking.dto.EPinResponse;
 import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
-import com.elsys.safebanking.exception.InvalidCredentialsException;
+import com.elsys.safebanking.exception.EPinReuseException;
+import com.elsys.safebanking.exception.EPinVerificationException;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.UserRepository;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
+import com.elsys.safebanking.validation.EPinPolicy;
 import java.util.Locale;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -18,8 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UserService {
-
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -51,37 +48,45 @@ public class UserService {
     @Transactional
     public EPinResponse getEPin(String email) {
         User user = getByEmail(email);
-        if (user.getEPin() == null) {
-            user.updateEPin(ePinCipher.encrypt(generateEPin()));
-        }
-        return new EPinResponse(ePinCipher.decrypt(user.getEPin()));
+        return new EPinResponse(getOrCreatePlainEPin(user));
     }
 
     @Transactional
     public EPinResponse changeEPin(String email, ChangeEPinRequest request) {
         User user = getByEmail(email);
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-            throw new InvalidCredentialsException("Current password is incorrect");
-        }
-        if (user.getEPin() == null || !MessageDigest.isEqual(
-                ePinCipher.decrypt(user.getEPin()).getBytes(StandardCharsets.UTF_8),
-                request.currentEPin().getBytes(StandardCharsets.UTF_8)
-        )) {
-            throw new InvalidCredentialsException("Current E-PIN is incorrect");
-        }
+        String currentEPin = verifyChangeCredentials(user, request);
 
+        if (EPinPolicy.matches(currentEPin, request.newEPin())) {
+            throw new EPinReuseException();
+        }
         user.updateEPin(ePinCipher.encrypt(request.newEPin()));
         return new EPinResponse(request.newEPin());
     }
 
-    public static String resolveEPin(String requestedEPin) {
-        return requestedEPin == null || requestedEPin.isBlank()
-                ? generateEPin()
-                : requestedEPin;
+    private String getOrCreatePlainEPin(User user) {
+        if (user.getEPin() != null) {
+            return ePinCipher.decrypt(user.getEPin());
+        }
+
+        String generatedEPin = EPinPolicy.generate();
+        user.updateEPin(ePinCipher.encrypt(generatedEPin));
+        return generatedEPin;
     }
 
-    private static String generateEPin() {
-        return "%06d".formatted(SECURE_RANDOM.nextInt(1_000_000));
+    private String verifyChangeCredentials(User user, ChangeEPinRequest request) {
+        boolean passwordMatches = passwordEncoder.matches(
+                request.currentPassword(),
+                user.getPasswordHash()
+        );
+        String currentEPin = user.getEPin() == null
+                ? null
+                : ePinCipher.decrypt(user.getEPin());
+        boolean ePinMatches = EPinPolicy.matches(currentEPin, request.currentEPin());
+
+        if (!passwordMatches || !ePinMatches) {
+            throw new EPinVerificationException();
+        }
+        return currentEPin;
     }
 
     public static String normalizeEmail(String email) {

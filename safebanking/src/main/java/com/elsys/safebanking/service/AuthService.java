@@ -8,6 +8,7 @@ import com.elsys.safebanking.exception.DuplicateEmailException;
 import com.elsys.safebanking.exception.InvalidCredentialsException;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.UserRepository;
+import com.elsys.safebanking.validation.EPinPolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +48,7 @@ public class AuthService {
                 request.lastName().trim(),
                 request.dateOfBirth()
         ));
-        user.updateEPin(ePinCipher.encrypt(UserService.resolveEPin(request.ePin())));
+        user.updateEPin(ePinCipher.encrypt(EPinPolicy.resolveOrGenerate(request.ePin())));
 
         return createAuthResponse(user);
     }

@@ -1,5 +1,6 @@
 package com.elsys.safebanking.service;
 
+import com.elsys.safebanking.exception.EPinProtectionException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -27,7 +28,7 @@ public class EPinCipher {
                     .digest(encryptionKey.getBytes(StandardCharsets.UTF_8));
             this.key = new SecretKeySpec(keyBytes, "AES");
         } catch (GeneralSecurityException exception) {
-            throw new IllegalStateException("Unable to initialize E-PIN encryption", exception);
+            throw new EPinProtectionException(exception);
         }
     }
 
@@ -45,7 +46,7 @@ public class EPinCipher {
             System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
             return Base64.getEncoder().encodeToString(payload);
         } catch (GeneralSecurityException exception) {
-            throw new IllegalStateException("Unable to encrypt E-PIN", exception);
+            throw new EPinProtectionException(exception);
         }
     }
 
@@ -61,7 +62,7 @@ public class EPinCipher {
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_LENGTH_BITS, iv));
             return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | IllegalArgumentException exception) {
-            throw new IllegalStateException("Unable to decrypt E-PIN", exception);
+            throw new EPinProtectionException(exception);
         }
     }
 }
