@@ -19,18 +19,15 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final EPinCipher ePinCipher;
 
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService,
-            EPinCipher ePinCipher
+            JwtService jwtService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
-        this.ePinCipher = ePinCipher;
     }
 
     @Transactional
@@ -48,9 +45,13 @@ public class AuthService {
                 request.lastName().trim(),
                 request.dateOfBirth()
         ));
-        user.updateEPin(ePinCipher.encrypt(EPinPolicy.resolveOrGenerate(request.ePin())));
+        EPinPolicy.Resolution ePinResolution = EPinPolicy.resolve(request.ePin());
+        user.updateEPinHash(passwordEncoder.encode(ePinResolution.value()));
 
-        return createAuthResponse(user);
+        return createAuthResponse(
+                user,
+                ePinResolution.generated() ? ePinResolution.value() : null
+        );
     }
 
     @Transactional(readOnly = true)
@@ -63,16 +64,17 @@ public class AuthService {
             throw new InvalidCredentialsException("Invalid email or password");
         }
 
-        return createAuthResponse(user);
+        return createAuthResponse(user, null);
     }
 
-    private AuthResponse createAuthResponse(User user) {
+    private AuthResponse createAuthResponse(User user, String oneTimeEPin) {
         String token = jwtService.createToken(user.getEmail());
         return new AuthResponse(
                 "Bearer",
                 token,
                 jwtService.expirationSeconds(),
-                UserProfileResponse.from(user)
+                UserProfileResponse.from(user),
+                oneTimeEPin
         );
     }
 }

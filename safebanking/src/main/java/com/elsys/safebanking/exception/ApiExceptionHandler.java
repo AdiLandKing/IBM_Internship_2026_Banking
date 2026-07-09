@@ -44,13 +44,13 @@ public class ApiExceptionHandler {
                 ));
     }
 
-    @ExceptionHandler(EPinProtectionException.class)
-    ResponseEntity<ApiError> handleEPinProtection() {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(EPinAlreadySetException.class)
+    ResponseEntity<ApiError> handleEPinAlreadySet(EPinAlreadySetException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiError.of(
-                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                        "E-PIN Processing Failed",
-                        "Unable to process E-PIN securely"
+                        HttpStatus.CONFLICT.value(),
+                        "E-PIN Already Set",
+                        exception.getMessage()
                 ));
     }
 

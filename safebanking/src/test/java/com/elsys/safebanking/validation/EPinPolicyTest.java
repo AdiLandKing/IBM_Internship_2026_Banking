@@ -1,6 +1,7 @@
 package com.elsys.safebanking.validation;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -33,10 +34,18 @@ class EPinPolicyTest {
     }
 
     @Test
-    void constantTimeComparisonHandlesMatchesAndNulls() {
-        assertTrue(EPinPolicy.matches("012345", "012345"));
-        assertFalse(EPinPolicy.matches("012345", "012346"));
-        assertFalse(EPinPolicy.matches(null, "012345"));
-        assertFalse(EPinPolicy.matches("012345", null));
+    void resolvesManualValueWithoutMarkingItGenerated() {
+        EPinPolicy.Resolution resolution = EPinPolicy.resolve("012345");
+
+        assertEquals("012345", resolution.value());
+        assertFalse(resolution.generated());
+    }
+
+    @Test
+    void resolvesEmptyValueToOneTimeGeneratedPin() {
+        EPinPolicy.Resolution resolution = EPinPolicy.resolve("");
+
+        assertTrue(EPinPolicy.isValid(resolution.value()));
+        assertTrue(resolution.generated());
     }
 }

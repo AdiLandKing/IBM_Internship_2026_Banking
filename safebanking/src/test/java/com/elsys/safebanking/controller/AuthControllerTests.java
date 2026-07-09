@@ -2,14 +2,13 @@ package com.elsys.safebanking.controller;
 
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.blankOrNullString;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.matchesPattern;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.elsys.safebanking.model.User;
@@ -73,7 +72,7 @@ class AuthControllerTests {
     }
 
     @Test
-    void registrationAcceptsManualEPinAndStoresItEncrypted() throws Exception {
+    void registrationAcceptsManualEPinAndStoresOnlyItsHash() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
@@ -86,19 +85,12 @@ class AuthControllerTests {
                         ))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.user.ePin").doesNotExist())
+                .andExpect(jsonPath("$.oneTimeEPin").isEmpty())
                 .andReturn();
 
-        String token = objectMapper.readTree(result.getResponse().getContentAsString())
-                .get("accessToken")
-                .asText();
-
-        mockMvc.perform(get("/api/users/e-pin")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ePin").value("123456"));
-
         User savedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
-        org.junit.jupiter.api.Assertions.assertNotEquals("123456", savedUser.getEPin());
+        assertNotEquals("123456", savedUser.getEPinHash());
+        assertTrue(passwordEncoder.matches("123456", savedUser.getEPinHash()));
     }
 
     @Test
@@ -115,14 +107,12 @@ class AuthControllerTests {
                         ))))
                 .andExpect(status().isCreated())
                 .andReturn();
-        String token = objectMapper.readTree(result.getResponse().getContentAsString())
-                .get("accessToken")
-                .asText();
+        JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString());
+        String generatedEPin = response.get("oneTimeEPin").asText();
+        assertTrue(generatedEPin.matches("\\d{6}"));
 
-        mockMvc.perform(get("/api/users/e-pin")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ePin").value(matchesPattern("\\d{6}")));
+        User savedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
+        assertTrue(passwordEncoder.matches(generatedEPin, savedUser.getEPinHash()));
     }
 
     @Test
@@ -143,8 +133,9 @@ class AuthControllerTests {
 
     @Test
     void registrationAcceptsLeadingZeroEPin() throws Exception {
-        String token = registerWithEPin("client@example.com", "012345");
-        assertEquals("012345", getEPin(token));
+        registerWithEPin("client@example.com", "012345");
+        User savedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
+        assertTrue(passwordEncoder.matches("012345", savedUser.getEPinHash()));
     }
 
     @Test
@@ -181,7 +172,8 @@ class AuthControllerTests {
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.accessToken", not(blankOrNullString())))
                 .andExpect(jsonPath("$.user.email").value("client@example.com"))
-                .andExpect(jsonPath("$.user.role").value("USER"));
+                .andExpect(jsonPath("$.user.role").value("USER"))
+                .andExpect(jsonPath("$.oneTimeEPin").isEmpty());
     }
 
     @Test
@@ -246,37 +238,40 @@ class AuthControllerTests {
 
     @Test
     void authenticatedUserCanChangeEPinWithCurrentPasswordAndEPin() throws Exception {
-        String token = register("client@example.com", "strongPassword123");
-        String currentEPin = getEPin(token);
+        String token = registerWithEPin("client@example.com", "123456");
 
         mockMvc.perform(put("/api/users/e-pin")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "strongPassword123",
-                                "currentEPin", currentEPin,
+                                "currentEPin", "123456",
                                 "newEPin", "654321"
                         ))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ePin").value("654321"));
+                .andExpect(jsonPath("$.set").value(true))
+                .andExpect(jsonPath("$.ePin").doesNotExist());
 
-        mockMvc.perform(get("/api/users/e-pin")
+        mockMvc.perform(get("/api/users/e-pin/status")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ePin").value("654321"));
+                .andExpect(jsonPath("$.set").value(true));
+
+        User savedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
+        assertTrue(passwordEncoder.matches("654321", savedUser.getEPinHash()));
+        assertFalse(passwordEncoder.matches("123456", savedUser.getEPinHash()));
     }
 
     @Test
     void changeEPinRejectsWrongPasswordAndInvalidValue() throws Exception {
-        String token = register("client@example.com", "strongPassword123");
-        String currentEPin = getEPin(token);
+        String token = registerWithEPin("client@example.com", "123456");
 
         mockMvc.perform(put("/api/users/e-pin")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "wrongPassword",
-                                "currentEPin", currentEPin,
+                                "currentEPin", "123456",
                                 "newEPin", "654321"
                         ))))
                 .andExpect(status().isUnauthorized())
@@ -288,7 +283,7 @@ class AuthControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "strongPassword123",
-                                "currentEPin", "000000".equals(currentEPin) ? "111111" : "000000",
+                                "currentEPin", "000000",
                                 "newEPin", "654321"
                         ))))
                 .andExpect(status().isUnauthorized())
@@ -300,7 +295,7 @@ class AuthControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "strongPassword123",
-                                "currentEPin", currentEPin,
+                                "currentEPin", "123456",
                                 "newEPin", "12345"
                         ))))
                 .andExpect(status().isBadRequest())
@@ -336,19 +331,89 @@ class AuthControllerTests {
     }
 
     @Test
-    void corruptedEPinReturnsDomainSafeResponseWithoutStoredValue() throws Exception {
+    void legacyReversibleValueIsTreatedAsUnsetAndCanBeReplaced() throws Exception {
         String token = registerWithEPin("client@example.com", "123456");
         User user = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
-        String corruptedValue = "corrupted-sensitive-value";
-        user.updateEPin(corruptedValue);
+        String legacyValue = "legacy-reversible-value";
+        user.updateEPinHash(legacyValue);
         userRepository.saveAndFlush(user);
+
+        mockMvc.perform(get("/api/users/e-pin/status")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.set").value(false))
+                .andExpect(jsonPath("$.ePin").doesNotExist());
+
+        mockMvc.perform(post("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "currentPassword", "strongPassword123",
+                                "newEPin", "654321"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.set").value(true));
+
+        User updatedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
+        assertTrue(passwordEncoder.matches("654321", updatedUser.getEPinHash()));
+    }
+
+    @Test
+    void existingUserCanSetEPinOnceWithCurrentPassword() throws Exception {
+        userRepository.save(new User(
+                "existing@example.com",
+                passwordEncoder.encode("strongPassword123"),
+                "Existing",
+                "User"
+        ));
+        String token = login("existing@example.com", "strongPassword123");
+
+        mockMvc.perform(get("/api/users/e-pin/status")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.set").value(false));
+
+        mockMvc.perform(post("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "currentPassword", "wrongPassword",
+                                "newEPin", "123456"
+                        ))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Current password or E-PIN is incorrect"));
+
+        mockMvc.perform(post("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "currentPassword", "strongPassword123",
+                                "newEPin", "123456"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.set").value(true));
+
+        User updatedUser = userRepository.findByEmailIgnoreCase("existing@example.com").orElseThrow();
+        assertTrue(passwordEncoder.matches("123456", updatedUser.getEPinHash()));
+
+        mockMvc.perform(post("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "currentPassword", "strongPassword123",
+                                "newEPin", "654321"
+                        ))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("E-PIN Already Set"));
+    }
+
+    @Test
+    void plaintextEPinRetrievalEndpointIsNotAvailable() throws Exception {
+        String token = registerWithEPin("client@example.com", "123456");
 
         mockMvc.perform(get("/api/users/e-pin")
                         .header("Authorization", "Bearer " + token))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error").value("E-PIN Processing Failed"))
-                .andExpect(jsonPath("$.message").value("Unable to process E-PIN securely"))
-                .andExpect(content().string(not(containsString(corruptedValue))));
+                .andExpect(status().isMethodNotAllowed());
     }
 
     @Test
@@ -444,17 +509,6 @@ class AuthControllerTests {
 
         JsonNode jsonNode = objectMapper.readTree(result.getResponse().getContentAsString());
         return jsonNode.get("accessToken").asText();
-    }
-
-    private String getEPin(String token) throws Exception {
-        MvcResult result = mockMvc.perform(get("/api/users/e-pin")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        return objectMapper.readTree(result.getResponse().getContentAsString())
-                .get("ePin")
-                .asText();
     }
 
     private String json(Object value) throws Exception {

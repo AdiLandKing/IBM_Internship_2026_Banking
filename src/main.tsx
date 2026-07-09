@@ -187,6 +187,10 @@ type AuthSession = {
   user: UserProfile;
 };
 
+type AuthenticationResult = AuthSession & {
+  oneTimeEPin: string | null;
+};
+
 type ApiErrorResponse = {
   message?: string;
   fieldErrors?: Record<string, string>;
@@ -314,7 +318,7 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
   return validationErrors;
 }
 
-async function authenticate(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
+async function authenticate(mode: AuthMode, payload: Record<string, string>): Promise<AuthenticationResult> {
   const response = await fetch(`${API_BASE_URL}/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
     method: 'POST',
     headers: {
@@ -353,40 +357,43 @@ function getAuthorizationHeader(authSession: AuthSession) {
   return `${authSession.tokenType} ${authSession.accessToken}`;
 }
 
-async function fetchEPin(authSession: AuthSession): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/users/e-pin`, {
+async function fetchEPinStatus(authSession: AuthSession): Promise<boolean> {
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin/status`, {
     headers: { Authorization: getAuthorizationHeader(authSession) },
   });
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response, 'Unable to load your E-PIN.'));
+    throw new Error(await getApiErrorMessage(response, 'Unable to load E-PIN status.'));
   }
 
-  const result = await response.json() as { ePin: string };
-  return result.ePin;
+  const result = await response.json() as { set: boolean };
+  return result.set;
 }
 
-async function updateEPin(
+async function saveEPin(
   authSession: AuthSession,
   currentPassword: string,
-  currentEPin: string,
+  currentEPin: string | null,
   newEPin: string,
-): Promise<string> {
+): Promise<void> {
+  const isChange = currentEPin !== null;
   const response = await fetch(`${API_BASE_URL}/api/users/e-pin`, {
-    method: 'PUT',
+    method: isChange ? 'PUT' : 'POST',
     headers: {
       Authorization: getAuthorizationHeader(authSession),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ currentPassword, currentEPin, newEPin }),
+    body: JSON.stringify(isChange
+      ? { currentPassword, currentEPin, newEPin }
+      : { currentPassword, newEPin }),
   });
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response, 'Unable to change your E-PIN.'));
+    throw new Error(await getApiErrorMessage(
+      response,
+      isChange ? 'Unable to change your E-PIN.' : 'Unable to set your E-PIN.',
+    ));
   }
-
-  const result = await response.json() as { ePin: string };
-  return result.ePin;
 }
 
 
@@ -1102,22 +1109,24 @@ function SecureEPinField({
   );
 }
 
-function validateEPinChange(currentPassword: string, currentEPin: string, newEPin: string) {
+function validateEPinSave(currentPassword: string, currentEPin: string | null, newEPin: string) {
   if (!currentPassword) return 'Enter your current password.';
-  if (!EPIN_PATTERN.test(currentEPin)) return `Current ${EPIN_VALIDATION_MESSAGE}`;
+  if (currentEPin !== null && !EPIN_PATTERN.test(currentEPin)) return `Current ${EPIN_VALIDATION_MESSAGE}`;
   if (!EPIN_PATTERN.test(newEPin)) return `New ${EPIN_VALIDATION_MESSAGE}`;
-  if (currentEPin === newEPin) return 'New E-PIN must be different from the current E-PIN.';
+  if (currentEPin !== null && currentEPin === newEPin) return 'New E-PIN must be different from the current E-PIN.';
   return '';
 }
 
 function ChangeEPinModal({
   authSession,
+  isSet,
   onClose,
-  onChanged,
+  onSaved,
 }: Readonly<{
   authSession: AuthSession;
+  isSet: boolean;
   onClose: () => void;
-  onChanged: (ePin: string) => void;
+  onSaved: () => void;
 }>) {
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -1125,6 +1134,11 @@ function ChangeEPinModal({
   const [newEPin, setNewEPin] = React.useState('');
   const [showCurrentEPin, setShowCurrentEPin] = React.useState(false);
   const [showNewEPin, setShowNewEPin] = React.useState(false);
+  const actionLabel = isSet ? 'Change E-PIN' : 'Set E-PIN';
+  const submitLabel = isSubmitting ? 'Saving...' : actionLabel;
+  const description = isSet
+    ? 'Confirm your current password and E-PIN before setting a new 6-digit E-PIN.'
+    : 'Confirm your current password before setting your 6-digit E-PIN.';
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1145,7 +1159,8 @@ function ChangeEPinModal({
 
     const formData = new FormData(event.currentTarget);
     const currentPassword = getFormString(formData, 'currentPassword');
-    const validationError = validateEPinChange(currentPassword, currentEPin, newEPin);
+    const currentEPinValue = isSet ? currentEPin : null;
+    const validationError = validateEPinSave(currentPassword, currentEPinValue, newEPin);
     if (validationError) {
       setError(validationError);
       return;
@@ -1153,7 +1168,8 @@ function ChangeEPinModal({
 
     setIsSubmitting(true);
     try {
-      onChanged(await updateEPin(authSession, currentPassword, currentEPin, newEPin));
+      await saveEPin(authSession, currentPassword, currentEPinValue, newEPin);
+      onSaved();
     } catch (changeError) {
       setError(changeError instanceof Error ? changeError.message : 'Unable to change your E-PIN.');
     } finally {
@@ -1188,10 +1204,10 @@ function ChangeEPinModal({
         </div>
         <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Security Check</p>
         <h2 id="change-epin-title" className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">
-          Change E-PIN
+          {actionLabel}
         </h2>
         <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
-          Confirm your current password and E-PIN before setting a new 6-digit E-PIN.
+          {description}
         </p>
 
         <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
@@ -1206,14 +1222,16 @@ function ChangeEPinModal({
               autoFocus
             />
           </label>
-          <SecureEPinField
-            label="Current E-PIN"
-            name="currentEPin"
-            value={currentEPin}
-            isVisible={showCurrentEPin}
-            onChange={setCurrentEPin}
-            onToggleVisibility={() => setShowCurrentEPin((visible) => !visible)}
-          />
+          {isSet && (
+            <SecureEPinField
+              label="Current E-PIN"
+              name="currentEPin"
+              value={currentEPin}
+              isVisible={showCurrentEPin}
+              onChange={setCurrentEPin}
+              onToggleVisibility={() => setShowCurrentEPin((visible) => !visible)}
+            />
+          )}
           <SecureEPinField
             label="New E-PIN"
             name="newEPin"
@@ -1241,10 +1259,50 @@ function ChangeEPinModal({
               disabled={isSubmitting}
               className="rounded-md bg-[rgb(var(--gold))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isSubmitting ? 'Changing...' : 'Change E-PIN'}
+              {submitLabel}
             </button>
           </div>
         </form>
+      </dialog>
+    </div>
+  );
+}
+
+function OneTimeEPinNotice({
+  ePin,
+  onClose,
+}: Readonly<{
+  ePin: string;
+  onClose: () => void;
+}>) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center px-5 py-8">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <dialog
+        open
+        aria-labelledby="one-time-epin-title"
+        className="relative w-full max-w-[440px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 text-center shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+      >
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <KeyRound size={20} strokeWidth={1.8} />
+        </div>
+        <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Shown Once</p>
+        <h2 id="one-time-epin-title" className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">
+          Save Your E-PIN
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
+          This automatically generated E-PIN cannot be recovered or displayed again.
+        </p>
+        <output className="mt-7 block rounded-md border border-[rgb(var(--gold))]/35 bg-[rgb(var(--page-bg))] px-5 py-4 font-mono text-2xl font-bold tracking-[0.28em] text-[rgb(var(--text-strong))]">
+          {ePin}
+        </output>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-7 w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold"
+        >
+          I Have Saved It
+        </button>
       </dialog>
     </div>
   );
@@ -1260,11 +1318,9 @@ function UserPage({
   showAccounts: () => void;
 }>) {
   const { user } = authSession;
-  const [ePin, setEPin] = React.useState<string | null>(null);
+  const [isEPinSet, setIsEPinSet] = React.useState<boolean | null>(null);
   const [ePinError, setEPinError] = React.useState('');
   const [ePinSuccess, setEPinSuccess] = React.useState('');
-  const [isEPinLoading, setIsEPinLoading] = React.useState(true);
-  const [isEPinVisible, setIsEPinVisible] = React.useState(false);
   const [isChangeEPinOpen, setIsChangeEPinOpen] = React.useState(false);
   const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
   const userDetails = [
@@ -1278,20 +1334,17 @@ function UserPage({
 
   React.useEffect(() => {
     let isActive = true;
-    setIsEPinLoading(true);
+    setIsEPinSet(null);
     setEPinError('');
 
-    fetchEPin(authSession)
+    fetchEPinStatus(authSession)
       .then((value) => {
-        if (isActive) setEPin(value);
+        if (isActive) setIsEPinSet(value);
       })
       .catch((loadError) => {
         if (isActive) {
-          setEPinError(loadError instanceof Error ? loadError.message : 'Unable to load your E-PIN.');
+          setEPinError(loadError instanceof Error ? loadError.message : 'Unable to load E-PIN status.');
         }
-      })
-      .finally(() => {
-        if (isActive) setIsEPinLoading(false);
       });
 
     return () => {
@@ -1299,20 +1352,19 @@ function UserPage({
     };
   }, [authSession]);
 
-  function handleEPinChanged(value: string) {
-    setEPin(value);
-    setIsEPinVisible(false);
+  function handleEPinSaved() {
+    const successMessage = isEPinSet
+      ? 'Your E-PIN was changed successfully.'
+      : 'Your E-PIN was set successfully.';
+    setIsEPinSet(true);
     setEPinError('');
-    setEPinSuccess('Your E-PIN was changed successfully.');
+    setEPinSuccess(successMessage);
     setIsChangeEPinOpen(false);
   }
 
-  let ePinDisplay = '••••••';
-  if (isEPinLoading) {
-    ePinDisplay = 'Loading...';
-  } else if (isEPinVisible && ePin) {
-    ePinDisplay = ePin;
-  }
+  let ePinDisplay = 'Checking...';
+  if (isEPinSet === true) ePinDisplay = '••••••';
+  if (isEPinSet === false) ePinDisplay = 'Not set';
 
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
@@ -1403,17 +1455,10 @@ function UserPage({
                   <span className="min-w-0 flex-1 font-mono text-base tracking-[0.2em] text-[rgb(var(--text-strong))]">
                     {ePinDisplay}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsEPinVisible((visible) => !visible)}
-                    disabled={isEPinLoading || !ePin}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))] disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={isEPinVisible ? 'Hide E-PIN' : 'Show E-PIN'}
-                    aria-pressed={isEPinVisible}
-                  >
-                    {isEPinVisible ? <EyeOff size={18} strokeWidth={1.8} /> : <Eye size={18} strokeWidth={1.8} />}
-                  </button>
                 </div>
+                <p className="mt-3 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+                  Your E-PIN is never returned by the server.
+                </p>
                 {ePinError && <p className="mt-3 text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
                 {ePinSuccess && <output className="mt-3 block text-sm font-bold text-emerald-500">{ePinSuccess}</output>}
                 <button
@@ -1422,10 +1467,10 @@ function UserPage({
                     setEPinSuccess('');
                     setIsChangeEPinOpen(true);
                   }}
-                  disabled={isEPinLoading || !ePin}
+                  disabled={isEPinSet === null || Boolean(ePinError)}
                   className="mt-5 rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                 >
-                  Change E-PIN
+                  {isEPinSet ? 'Change E-PIN' : 'Set E-PIN'}
                 </button>
               </div>
             </section>
@@ -1435,8 +1480,9 @@ function UserPage({
       {isChangeEPinOpen && (
         <ChangeEPinModal
           authSession={authSession}
+          isSet={Boolean(isEPinSet)}
           onClose={() => setIsChangeEPinOpen(false)}
-          onChanged={handleEPinChanged}
+          onSaved={handleEPinSaved}
         />
       )}
     </section>
@@ -2051,7 +2097,7 @@ type AuthPopupProps = {
   isOpen: boolean;
   onClose: () => void;
   onModeChange: (mode: AuthMode) => void;
-  onAuthenticated: (session: AuthSession) => void;
+  onAuthenticated: (result: AuthenticationResult) => void;
 };
 
 type AuthFormViewModel = {
@@ -2724,6 +2770,7 @@ function App() {
     if (typeof window === 'undefined') return null;
     return readStoredAuthSession();
   });
+  const [oneTimeEPin, setOneTimeEPin] = React.useState<string | null>(null);
   const [page, setPage] = React.useState<PageMode>(() => {
     if (typeof window === 'undefined') return 'home';
     return getPageFromPath(window.location.pathname);
@@ -2767,14 +2814,17 @@ function App() {
     navigateTo('admin');
   }, [navigateTo]);
 
-  const handleAuthenticated = React.useCallback((session: AuthSession) => {
+  const handleAuthenticated = React.useCallback((result: AuthenticationResult) => {
+    const { oneTimeEPin: generatedEPin, ...session } = result;
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
     setAuthSession(session);
+    setOneTimeEPin(generatedEPin);
   }, []);
 
   const handleLogout = React.useCallback(() => {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuthSession(null);
+    setOneTimeEPin(null);
     setAuthMode('login');
   }, []);
 
@@ -2862,6 +2912,12 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+      {oneTimeEPin && (
+        <OneTimeEPinNotice
+          ePin={oneTimeEPin}
+          onClose={() => setOneTimeEPin(null)}
+        />
       )}
 
       <Header

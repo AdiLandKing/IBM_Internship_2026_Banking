@@ -39,8 +39,8 @@ public class User {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
-    @Column(name = "e_pin", length = EPinPolicy.ENCRYPTED_COLUMN_LENGTH)
-    private String ePin;
+    @Column(name = "e_pin", length = EPinPolicy.HASHED_COLUMN_LENGTH)
+    private String ePinHash;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'USER'")
@@ -97,7 +97,7 @@ public class User {
         this.role = role;
     }
 
-    public void updateEPin(String ePin) {
-        this.ePin = ePin;
+    public void updateEPinHash(String ePinHash) {
+        this.ePinHash = ePinHash;
     }
 }
