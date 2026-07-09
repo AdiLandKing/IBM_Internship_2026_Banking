@@ -1,5 +1,6 @@
 package com.elsys.safebanking.service;
 
+import com.elsys.safebanking.dto.AdminUserResponse;
 import com.elsys.safebanking.dto.ChangeEPinRequest;
 import com.elsys.safebanking.dto.EPinStatusResponse;
 import com.elsys.safebanking.dto.SetEPinRequest;
@@ -9,14 +10,17 @@ import com.elsys.safebanking.exception.EPinAlreadySetException;
 import com.elsys.safebanking.exception.EPinReuseException;
 import com.elsys.safebanking.exception.EPinVerificationException;
 import com.elsys.safebanking.model.User;
+import com.elsys.safebanking.repository.BankAccountRepository;
 import com.elsys.safebanking.repository.UserRepository;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,15 +31,18 @@ public class UserService {
     private static final Pattern BCRYPT_HASH = Pattern.compile("^\\$2[aby]\\$\\d{2}\\$.{53}$");
 
     private final UserRepository userRepository;
+    private final BankAccountRepository bankAccountRepository;
     private final PasswordEncoder passwordEncoder;
     private final EPinAttemptLimiter ePinAttemptLimiter;
 
     public UserService(
             UserRepository userRepository,
+            BankAccountRepository bankAccountRepository,
             PasswordEncoder passwordEncoder,
             EPinAttemptLimiter ePinAttemptLimiter
     ) {
         this.userRepository = userRepository;
+        this.bankAccountRepository = bankAccountRepository;
         this.passwordEncoder = passwordEncoder;
         this.ePinAttemptLimiter = ePinAttemptLimiter;
     }
@@ -44,6 +51,15 @@ public class UserService {
     public User getByEmail(String email) {
         return userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AdminUserResponse> getAllUsers(Pageable pageable) {
+        return userRepository.findAll(pageable)
+            .map(user -> {
+                long count = bankAccountRepository.countByOwner(user);
+                return AdminUserResponse.from(user, count);
+            });
     }
 
     @Transactional

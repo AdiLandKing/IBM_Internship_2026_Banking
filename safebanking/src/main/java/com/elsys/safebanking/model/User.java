@@ -20,6 +20,9 @@ import lombok.Getter;
 @Table(name = "users")
 public class User {
 
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private boolean active = true;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -75,6 +78,7 @@ public class User {
         this.dateOfBirth = dateOfBirth;
         this.role = role;
     }
+    
 
     @PrePersist
     void onCreate() {
