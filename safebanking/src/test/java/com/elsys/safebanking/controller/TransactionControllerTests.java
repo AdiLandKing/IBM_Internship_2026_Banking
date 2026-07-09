@@ -2,6 +2,7 @@ package com.elsys.safebanking.controller;
 
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
+import com.elsys.safebanking.model.TransactionStatus;
 import com.elsys.safebanking.service.AppUserDetailsService;
 import com.elsys.safebanking.service.JwtService;
 import com.elsys.safebanking.service.TransferService;
@@ -46,8 +47,7 @@ class TransactionControllerTests {
                 "BG123456789", "BG987654321", BigDecimal.valueOf(100),
                 "Payment", "BGN", "BGN"
         );
-        TransferResponse response = new TransferResponse(1L, "PENDING");
-
+TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
         when(transferService.transfer(any(TransferRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/transactions/transfer")
