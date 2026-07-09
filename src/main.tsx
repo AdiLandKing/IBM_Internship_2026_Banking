@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Activity, ArrowLeft, Calendar, ChartPie, Eye, EyeOff, Landmark, LockKeyhole, Mail, Moon, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, Calendar, Check, ChartPie, Copy, CreditCard, Eye, EyeOff, Landmark, LockKeyhole, Mail, Moon, Pencil, Plus, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './styles.css';
 
@@ -67,8 +67,53 @@ const accessRequests = [
   { name: 'Maya Chen', email: 'maya.chen@safebank.com', request: 'Advisor account creation', submitted: 'Jul 01, 2026' },
 ];
 
+type ClientAccount = {
+  id: string;
+  name: string;
+  type: string;
+  iban: string;
+  balance: number;
+  currency: string;
+  opened: string;
+  branch: string;
+};
+
+const clientAccounts: ClientAccount[] = [
+  {
+    id: 'private-checking',
+    name: 'Private Checking',
+    type: 'Everyday account',
+    iban: 'BG80SAFE18470000394401',
+    balance: 128420.86,
+    currency: 'USD',
+    opened: 'March 14, 2021',
+    branch: 'Sofia Private Office',
+  },
+  {
+    id: 'wealth-reserve',
+    name: 'Wealth Reserve',
+    type: 'Savings account',
+    iban: 'BG31SAFE18470000184702',
+    balance: 740000,
+    currency: 'USD',
+    opened: 'September 02, 2018',
+    branch: 'Sofia Private Office',
+  },
+  {
+    id: 'travel-fx',
+    name: 'Travel & FX',
+    type: 'Foreign currency account',
+    iban: 'BG59SAFE18470000621803',
+    balance: 42890.4,
+    currency: 'EUR',
+    opened: 'January 18, 2024',
+    branch: 'International Banking',
+  },
+];
+
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
+  if (pathname === '/accounts') return 'accounts';
   if (pathname === '/portfolio') return 'portfolio';
   if (pathname === '/transactions') return 'transactions';
   return 'home';
@@ -76,6 +121,7 @@ function getPageFromPath(pathname: string): PageMode {
 
 function getPathFromPage(page: PageMode) {
   if (page === 'admin') return '/admin';
+  if (page === 'accounts') return '/accounts';
   if (page === 'portfolio') return '/portfolio';
   if (page === 'transactions') return '/transactions';
   return '/';
@@ -114,7 +160,7 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 }
 
 type AuthMode = 'login' | 'register';
-type PageMode = 'home' | 'transactions' | 'portfolio' | 'admin';
+type PageMode = 'home' | 'accounts' | 'transactions' | 'portfolio' | 'admin';
 
 const DEFAULT_API_BASE_URL = typeof window !== 'undefined' && window.location.port !== '5173'
   ? window.location.origin
@@ -310,6 +356,7 @@ function Header({
   onLogout,
   showAdmin,
   showHome,
+  showAccounts,
   showTransactions,
   showPortfolio,
 }: {
@@ -320,6 +367,7 @@ function Header({
   onLogout: () => void;
   showAdmin: () => void;
   showHome: () => void;
+  showAccounts: () => void;
   showTransactions: () => void;
   showPortfolio: () => void;
 }) {
@@ -330,6 +378,9 @@ function Header({
       <nav className="flex h-[60px] items-center justify-between px-6 sm:px-10">
         <Logo onClick={showHome} />
         <div className="hidden items-center gap-10 text-sm font-semibold text-[rgb(var(--text-muted))] lg:flex">
+          <button type="button" onClick={showAccounts} className="transition hover:text-[rgb(var(--text-strong))]">
+            Accounts
+          </button>
           <button type="button" onClick={showTransactions} className="transition hover:text-[rgb(var(--text-strong))]">
             Transactions
           </button>
@@ -385,10 +436,10 @@ function Header({
           )}
           <button
             type="button"
-            onClick={() => authSession ? showPortfolio() : openAuth('register')}
+            onClick={() => authSession ? showAccounts() : openAuth('register')}
             className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-bold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 hover:brightness-105"
           >
-            {authSession ? 'Portfolio' : 'Inquire'}
+            {authSession ? 'Accounts' : 'Inquire'}
           </button>
         </div>
       </nav>
@@ -492,6 +543,380 @@ function StatsBand() {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+function formatAccountBalance(account: ClientAccount) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: account.currency,
+    minimumFractionDigits: 2,
+  }).format(account.balance);
+}
+
+function maskIban(iban: string) {
+  if (iban === 'Pending assignment') return iban;
+  return `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}`;
+}
+
+function AccountsPage({
+  showHome,
+  showTransactions,
+}: {
+  showHome: () => void;
+  showTransactions: () => void;
+}) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>(clientAccounts);
+  const [selectedAccountId, setSelectedAccountId] = React.useState(clientAccounts[0].id);
+  const [accountNames, setAccountNames] = React.useState<Record<string, string>>(
+    () => Object.fromEntries(clientAccounts.map((account) => [account.id, account.name])),
+  );
+  const [isCreateAccountOpen, setIsCreateAccountOpen] = React.useState(false);
+  const [editingName, setEditingName] = React.useState(false);
+  const [draftName, setDraftName] = React.useState('');
+  const [isIbanVisible, setIsIbanVisible] = React.useState(false);
+  const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
+
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
+  const selectedName = accountNames[selectedAccount.id];
+  const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
+
+  function selectAccount(account: ClientAccount) {
+    setSelectedAccountId(account.id);
+    setEditingName(false);
+    setIsIbanVisible(false);
+  }
+
+  function startRenaming() {
+    setDraftName(selectedName);
+    setEditingName(true);
+  }
+
+  function saveAccountName(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextName = draftName.trim();
+    if (!nextName) return;
+    setAccountNames((current) => ({ ...current, [selectedAccount.id]: nextName }));
+    setEditingName(false);
+  }
+
+  async function copyIban() {
+    await navigator.clipboard.writeText(selectedAccount.iban);
+    setCopiedAccountId(selectedAccount.id);
+    window.setTimeout(() => setCopiedAccountId(null), 1800);
+  }
+
+  function createAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const accountName = getFormString(formData, 'accountName', true);
+    const accountType = getFormString(formData, 'accountType');
+    const currency = getFormString(formData, 'currency');
+    if (!accountName || !accountType || !currency) return;
+
+    const accountId = `new-account-${Date.now()}`;
+    const newAccount: ClientAccount = {
+      id: accountId,
+      name: accountName,
+      type: accountType,
+      iban: 'Pending assignment',
+      balance: 0,
+      currency,
+      opened: new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date()),
+      branch: 'Sofia Private Office',
+    };
+
+    setAccounts((current) => [...current, newAccount]);
+    setAccountNames((current) => ({ ...current, [accountId]: accountName }));
+    setSelectedAccountId(accountId);
+    setIsCreateAccountOpen(false);
+    setEditingName(false);
+    setIsIbanVisible(false);
+  }
+
+  return (
+    <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
+      <div className="mx-auto max-w-[1100px]">
+        <button
+          type="button"
+          onClick={showHome}
+          className="inline-flex items-center gap-2 text-sm font-bold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))]"
+        >
+          <ArrowLeft size={16} strokeWidth={1.8} />
+          Back to overview
+        </button>
+
+        <div className="mt-10 flex flex-col justify-between gap-8 border-b border-[rgb(var(--line))] pb-10 md:flex-row md:items-end">
+          <div>
+            <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Private Banking</p>
+            <h1 className="mt-4 font-display text-[clamp(3rem,5vw,4.5rem)] font-semibold leading-none text-[rgb(var(--text-strong))]">
+              Your Accounts
+            </h1>
+            <p className="mt-5 max-w-[610px] text-base leading-7 text-[rgb(var(--text-muted))]">
+              Review balances, account details, and the accounts available for transfers.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setIsCreateAccountOpen(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:-translate-y-0.5 hover:border-[rgb(var(--gold))]"
+            >
+              <Plus size={17} strokeWidth={1.8} />
+              Create account
+            </button>
+            <button
+              type="button"
+              onClick={showTransactions}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+            >
+              <Zap size={17} strokeWidth={1.8} />
+              New Transfer
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-px border-b border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
+          {[
+            ['Accounts', String(accounts.length)],
+            ['Currencies', String(new Set(accounts.map((account) => account.currency)).size)],
+          ].map(([label, value]) => (
+            <div key={label} className="bg-[rgb(var(--page-bg))] px-6 py-7">
+              <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">{label}</p>
+              <p className="mt-3 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-10 grid gap-8 lg:grid-cols-[360px_1fr]">
+          <div className="overflow-hidden rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))]">
+            <div className="border-b border-[rgb(var(--line))] px-5 py-4">
+              <p className="text-[0.64rem] font-extrabold uppercase tracking-[0.28em] text-[rgb(var(--text-muted))]">Account Directory</p>
+            </div>
+            <div className="divide-y divide-[rgb(var(--line))]">
+              {accounts.map((account) => {
+                const isSelected = account.id === selectedAccount.id;
+                return (
+                  <button
+                    key={account.id}
+                    type="button"
+                    onClick={() => selectAccount(account)}
+                    className={`w-full px-5 py-5 text-left transition ${
+                      isSelected
+                        ? 'bg-[rgb(var(--icon-bg))]'
+                        : 'hover:bg-[rgb(var(--service-hover))]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-[rgb(var(--text-strong))]">{accountNames[account.id]}</p>
+                        <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
+                      </div>
+                      <CreditCard
+                        size={18}
+                        strokeWidth={1.7}
+                        className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
+                      />
+                    </div>
+                    <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
+                    <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <article className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault sm:p-8">
+            <div className="flex flex-col justify-between gap-6 border-b border-[rgb(var(--line))] pb-7 sm:flex-row sm:items-start">
+              <div>
+                {editingName ? (
+                  <form className="flex flex-col gap-3 sm:flex-row" onSubmit={saveAccountName}>
+                    <input
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      maxLength={60}
+                      autoFocus
+                      aria-label="Account name"
+                      className="min-w-0 rounded-md border border-[rgb(var(--gold))] bg-[rgb(var(--page-bg))] px-4 py-2.5 text-lg font-bold text-[rgb(var(--text-strong))] outline-none"
+                    />
+                    <div className="flex gap-2">
+                      <button type="submit" className="grid h-11 w-11 place-items-center rounded-md bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))]" aria-label="Save account name">
+                        <Check size={17} strokeWidth={2} />
+                      </button>
+                      <button type="button" onClick={() => setEditingName(false)} className="grid h-11 w-11 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))]" aria-label="Cancel account name edit">
+                        <X size={17} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <h2 className="font-display text-3xl font-semibold text-[rgb(var(--text-strong))] sm:text-4xl">{selectedName}</h2>
+                    <button
+                      type="button"
+                      onClick={startRenaming}
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                      aria-label="Rename account"
+                      title="Rename account"
+                    >
+                      <Pencil size={15} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                )}
+                <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{selectedAccount.type}</p>
+              </div>
+              <div className="sm:text-right">
+                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">Available Balance</p>
+                <p className="mt-2 font-display text-3xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(selectedAccount)}</p>
+              </div>
+            </div>
+
+            <div className="py-7">
+              <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">IBAN</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <p className="break-all font-mono text-base font-bold tracking-[0.08em] text-[rgb(var(--text-strong))]">
+                  {isIbanVisible ? selectedAccount.iban : maskIban(selectedAccount.iban)}
+                </p>
+                {selectedAccount.iban !== 'Pending assignment' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsIbanVisible((current) => !current)}
+                      className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                      aria-label={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
+                      title={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
+                    >
+                      <IbanVisibilityIcon size={16} strokeWidth={1.8} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={copyIban}
+                      className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                      aria-label="Copy IBAN"
+                      title="Copy IBAN"
+                    >
+                      {copiedAccountId === selectedAccount.id
+                        ? <Check size={16} strokeWidth={2} />
+                        : <Copy size={16} strokeWidth={1.8} />}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
+              {[
+                ['Currency', selectedAccount.currency],
+                ['Account holder', 'Primary client'],
+                ['Opened', selectedAccount.opened],
+                ['Servicing branch', selectedAccount.branch],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
+                  <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
+                  <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={showTransactions}
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+              >
+                <Zap size={16} strokeWidth={1.8} />
+                Transfer from this account
+              </button>
+              <button
+                type="button"
+                onClick={startRenaming}
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+              >
+                <Pencil size={16} strokeWidth={1.8} />
+                Edit account name
+              </button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      {isCreateAccountOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-5 py-8">
+          <button
+            type="button"
+            aria-label="Close create account popup"
+            className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+            onClick={() => setIsCreateAccountOpen(false)}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-account-title"
+            className="relative w-full max-w-[460px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+          >
+            <button
+              type="button"
+              onClick={() => setIsCreateAccountOpen(false)}
+              className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--text-strong))]"
+              aria-label="Close popup"
+            >
+              <X size={17} strokeWidth={1.8} />
+            </button>
+            <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+              <Plus size={20} strokeWidth={1.8} />
+            </div>
+            <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.3em] text-[rgb(var(--gold))]">Account Management</p>
+            <h2 id="create-account-title" className="mt-3 font-display text-4xl font-semibold text-[rgb(var(--text-strong))]">
+              Create Account
+            </h2>
+            <form className="mt-7 space-y-4" onSubmit={createAccount}>
+              <label className="block">
+                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Account Name</span>
+                <input
+                  name="accountName"
+                  type="text"
+                  maxLength={60}
+                  autoFocus
+                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                  placeholder="My savings"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Account Type</span>
+                <select
+                  name="accountType"
+                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+                  required
+                >
+                  <option value="Everyday account">Everyday account</option>
+                  <option value="Savings account">Savings account</option>
+                  <option value="Foreign currency account">Foreign currency account</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Currency</span>
+                <select
+                  name="currency"
+                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+                  required
+                >
+                  <option value="BGN">BGN</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </label>
+              <button
+                type="submit"
+                className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+              >
+                Create account
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -1766,6 +2191,10 @@ function App() {
     navigateTo('transactions');
   }, [navigateTo]);
 
+  const showAccounts = React.useCallback(() => {
+    navigateTo('accounts');
+  }, [navigateTo]);
+
   const showPortfolio = React.useCallback(() => {
     navigateTo('portfolio');
   }, [navigateTo]);
@@ -1836,6 +2265,7 @@ function App() {
         onLogout={handleLogout}
         showAdmin={showAdmin}
         showHome={showHome}
+        showAccounts={showAccounts}
         showTransactions={showTransactions}
         showPortfolio={showPortfolio}
       />
@@ -1847,6 +2277,7 @@ function App() {
             <Cta showTransactions={showTransactions} showPortfolio={showPortfolio} />
           </>
         )}
+        {page === 'accounts' && <AccountsPage showHome={showHome} showTransactions={showTransactions} />}
         {page === 'transactions' && <TransactionsPage showHome={showHome} />}
         {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
         {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
