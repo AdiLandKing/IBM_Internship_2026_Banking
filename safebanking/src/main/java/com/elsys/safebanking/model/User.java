@@ -39,6 +39,9 @@ public class User {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
+    @Column(name = "e_pin", length = 255)
+    private String ePin;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'USER'")
     private UserRole role = UserRole.USER;
@@ -92,5 +95,9 @@ public class User {
 
     public void updateRole(UserRole role) {
         this.role = role;
+    }
+
+    public void updateEPin(String ePin) {
+        this.ePin = ePin;
     }
 }

@@ -1,5 +1,7 @@
 package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.dto.ChangeEPinRequest;
+import com.elsys.safebanking.dto.EPinResponse;
 import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
 import com.elsys.safebanking.service.UserService;
@@ -32,5 +34,18 @@ public class UserController {
             @Valid @RequestBody UpdateProfileRequest request
     ) {
         return userService.updateProfile(principal.getName(), request);
+    }
+
+    @GetMapping("/e-pin")
+    public EPinResponse ePin(Principal principal) {
+        return userService.getEPin(principal.getName());
+    }
+
+    @PutMapping("/e-pin")
+    public EPinResponse changeEPin(
+            Principal principal,
+            @Valid @RequestBody ChangeEPinRequest request
+    ) {
+        return userService.changeEPin(principal.getName(), request);
     }
 }

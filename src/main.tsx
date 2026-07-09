@@ -192,7 +192,7 @@ type ApiErrorResponse = {
   fieldErrors?: Record<string, string>;
 };
 
-type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password' | 'confirmPassword', string>>;
+type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'ePin' | 'password' | 'confirmPassword', string>>;
 
 const AUTH_RULE_MESSAGE = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
 const REGISTRATION_AUTH_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
@@ -264,6 +264,7 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
   const password = getFormString(formData, 'password');
   const confirmPassword = getFormString(formData, 'confirmPassword');
   const dateOfBirth = getFormString(formData, 'dateOfBirth');
+  const ePin = getFormString(formData, 'ePin', true);
   const validationErrors: AuthFieldErrors = {};
 
   if (!email) {
@@ -286,6 +287,10 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
 
   if (!isValidDateOfBirth(dateOfBirth)) {
     validationErrors.dateOfBirth = 'Enter a valid date of birth.';
+  }
+
+  if (ePin && !/^\d{6}$/.test(ePin)) {
+    validationErrors.ePin = 'E-PIN must contain exactly 6 digits.';
   }
 
   if (!isValidRegistrationPassword(password)) {
@@ -324,6 +329,51 @@ async function authenticate(mode: AuthMode, payload: Record<string, string>): Pr
   }
 
   return response.json();
+}
+
+async function getApiErrorMessage(response: Response, fallback: string) {
+  try {
+    const apiError = await response.json() as ApiErrorResponse;
+    const fieldError = apiError.fieldErrors ? Object.values(apiError.fieldErrors)[0] : undefined;
+    return fieldError ?? apiError.message ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getAuthorizationHeader(authSession: AuthSession) {
+  return `${authSession.tokenType} ${authSession.accessToken}`;
+}
+
+async function fetchEPin(authSession: AuthSession): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load your E-PIN.'));
+  }
+
+  const result = await response.json() as { ePin: string };
+  return result.ePin;
+}
+
+async function updateEPin(authSession: AuthSession, currentPassword: string, newEPin: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin`, {
+    method: 'PUT',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ currentPassword, newEPin }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to change your E-PIN.'));
+  }
+
+  const result = await response.json() as { ePin: string };
+  return result.ePin;
 }
 
 async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile> {
@@ -974,6 +1024,159 @@ function formatProfileDate(value: string | null, fallback: string) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(date);
 }
 
+function ChangeEPinModal({
+  authSession,
+  onClose,
+  onChanged,
+}: Readonly<{
+  authSession: AuthSession;
+  onClose: () => void;
+  onChanged: (ePin: string) => void;
+}>) {
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [newEPin, setNewEPin] = React.useState('');
+  const [showNewEPin, setShowNewEPin] = React.useState(false);
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isSubmitting) onClose();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSubmitting, onClose]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+
+    const formData = new FormData(event.currentTarget);
+    const currentPassword = getFormString(formData, 'currentPassword');
+    if (!currentPassword) {
+      setError('Enter your current password.');
+      return;
+    }
+    if (!/^\d{6}$/.test(newEPin)) {
+      setError('New E-PIN must contain exactly 6 digits.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      onChanged(await updateEPin(authSession, currentPassword, newEPin));
+    } catch (changeError) {
+      setError(changeError instanceof Error ? changeError.message : 'Unable to change your E-PIN.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center px-5 py-8">
+      <button
+        type="button"
+        aria-label="Close Change E-PIN popup"
+        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+        onClick={isSubmitting ? undefined : onClose}
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-epin-title"
+        className="relative w-full max-w-[440px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isSubmitting}
+          className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--text-strong))] disabled:opacity-50"
+          aria-label="Close popup"
+        >
+          <X size={17} strokeWidth={1.8} />
+        </button>
+        <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <KeyRound size={20} strokeWidth={1.8} />
+        </div>
+        <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Security Check</p>
+        <h2 id="change-epin-title" className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">
+          Change E-PIN
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
+          Confirm your current password before setting a new 6-digit E-PIN.
+        </p>
+
+        <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
+          <label className="block">
+            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Current Password</span>
+            <input
+              name="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+              required
+              autoFocus
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">New E-PIN</span>
+            <div className="relative">
+              <input
+                name="newEPin"
+                type={showNewEPin ? 'text' : 'password'}
+                inputMode="numeric"
+                autoComplete="off"
+                minLength={6}
+                maxLength={6}
+                pattern="[0-9]{6}"
+                value={newEPin}
+                onChange={(event) => setNewEPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 pr-12 font-mono text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewEPin((visible) => !visible)}
+                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+                aria-label={showNewEPin ? 'Hide new E-PIN' : 'Show new E-PIN'}
+                aria-pressed={showNewEPin}
+              >
+                {showNewEPin ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+          </label>
+          {error && (
+            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-md bg-[rgb(var(--gold))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isSubmitting ? 'Changing...' : 'Change E-PIN'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function UserPage({
   authSession,
   showHome,
@@ -984,8 +1187,12 @@ function UserPage({
   showAccounts: () => void;
 }>) {
   const { user } = authSession;
-  const [ePin, setEPin] = React.useState('');
-  const [isEPinSaved, setIsEPinSaved] = React.useState(false);
+  const [ePin, setEPin] = React.useState<string | null>(null);
+  const [ePinError, setEPinError] = React.useState('');
+  const [ePinSuccess, setEPinSuccess] = React.useState('');
+  const [isEPinLoading, setIsEPinLoading] = React.useState(true);
+  const [isEPinVisible, setIsEPinVisible] = React.useState(false);
+  const [isChangeEPinOpen, setIsChangeEPinOpen] = React.useState(false);
   const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
   const userDetails = [
     ['First name', user.firstName],
@@ -996,10 +1203,35 @@ function UserPage({
     ['Client since', formatProfileDate(user.createdAt, 'Not available')],
   ];
 
-  function saveEPin(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!/^\d{6}$/.test(ePin)) return;
-    setIsEPinSaved(true);
+  React.useEffect(() => {
+    let isActive = true;
+    setIsEPinLoading(true);
+    setEPinError('');
+
+    fetchEPin(authSession)
+      .then((value) => {
+        if (isActive) setEPin(value);
+      })
+      .catch((loadError) => {
+        if (isActive) {
+          setEPinError(loadError instanceof Error ? loadError.message : 'Unable to load your E-PIN.');
+        }
+      })
+      .finally(() => {
+        if (isActive) setIsEPinLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [authSession]);
+
+  function handleEPinChanged(value: string) {
+    setEPin(value);
+    setIsEPinVisible(false);
+    setEPinError('');
+    setEPinSuccess('Your E-PIN was changed successfully.');
+    setIsChangeEPinOpen(false);
   }
 
   return (
@@ -1084,49 +1316,49 @@ function UserPage({
                   Your password is hidden and is never returned by the server.
                 </p>
               </div>
-              <form className="mt-7 border-t border-[rgb(var(--line))] pt-6" onSubmit={saveEPin}>
-                <label className="block">
-                  <span className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">E-PIN</span>
-                  <input
-                    name="ePin"
-                    type="password"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    minLength={6}
-                    maxLength={6}
-                    pattern="[0-9]{6}"
-                    value={ePin}
-                    onChange={(event) => {
-                      setEPin(event.target.value.replace(/\D/g, '').slice(0, 6));
-                      setIsEPinSaved(false);
-                    }}
-                    className="mt-3 w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none placeholder:tracking-normal placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                    placeholder="Enter 6-digit E-PIN"
-                    aria-describedby="epin-requirements"
-                    required
-                  />
-                </label>
-                <p id="epin-requirements" className="mt-2 text-xs font-semibold text-[rgb(var(--text-muted))]">
-                  Enter exactly 6 numbers.
-                </p>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="mt-7 border-t border-[rgb(var(--line))] pt-6">
+                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">E-PIN</p>
+                <div className="mt-3 flex items-center gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3">
+                  <KeyRound size={17} strokeWidth={1.8} className="shrink-0 text-[rgb(var(--text-muted))]" />
+                  <span className="min-w-0 flex-1 font-mono text-base tracking-[0.2em] text-[rgb(var(--text-strong))]">
+                    {isEPinLoading ? 'Loading...' : isEPinVisible ? ePin : '••••••'}
+                  </span>
                   <button
-                    type="submit"
-                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+                    type="button"
+                    onClick={() => setIsEPinVisible((visible) => !visible)}
+                    disabled={isEPinLoading || !ePin}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))] disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={isEPinVisible ? 'Hide E-PIN' : 'Show E-PIN'}
+                    aria-pressed={isEPinVisible}
                   >
-                    Save E-PIN
+                    {isEPinVisible ? <EyeOff size={18} strokeWidth={1.8} /> : <Eye size={18} strokeWidth={1.8} />}
                   </button>
-                  {isEPinSaved && (
-                    <output className="text-sm font-bold text-emerald-500">
-                      E-PIN saved locally.
-                    </output>
-                  )}
                 </div>
-              </form>
+                {ePinError && <p className="mt-3 text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+                {ePinSuccess && <p className="mt-3 text-sm font-bold text-emerald-500" role="status">{ePinSuccess}</p>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEPinSuccess('');
+                    setIsChangeEPinOpen(true);
+                  }}
+                  disabled={isEPinLoading || !ePin}
+                  className="mt-5 rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                >
+                  Change E-PIN
+                </button>
+              </div>
             </section>
           </div>
         </div>
       </div>
+      {isChangeEPinOpen && (
+        <ChangeEPinModal
+          authSession={authSession}
+          onClose={() => setIsChangeEPinOpen(false)}
+          onChanged={handleEPinChanged}
+        />
+      )}
     </section>
   );
 }
@@ -1796,6 +2028,7 @@ function buildAuthPayload(mode: AuthMode, formData: FormData): Record<string, st
     firstName: getFormString(formData, 'firstName', true),
     lastName: getFormString(formData, 'lastName', true),
     dateOfBirth: getFormString(formData, 'dateOfBirth'),
+    ePin: getFormString(formData, 'ePin', true),
   };
 }
 
@@ -1951,6 +2184,42 @@ function RegistrationFields({
         {fieldErrors.dateOfBirth && (
           <p id="date-of-birth-error" className="mt-2 text-xs font-bold text-red-500">
             {fieldErrors.dateOfBirth}
+          </p>
+        )}
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+          E-PIN <span className="normal-case tracking-normal text-[rgb(var(--text-muted))]">(optional)</span>
+        </span>
+        <div className="relative">
+          <KeyRound className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
+          <input
+            name="ePin"
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            minLength={6}
+            maxLength={6}
+            pattern="[0-9]{6}"
+            onInput={(event) => {
+              event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6);
+            }}
+            aria-invalid={Boolean(fieldErrors.ePin)}
+            aria-describedby={fieldErrors.ePin ? 'registration-epin-error' : 'registration-epin-help'}
+            className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none transition placeholder:tracking-normal placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+              fieldErrors.ePin ? 'border-red-500' : 'border-[rgb(var(--line))]'
+            }`}
+            placeholder="6 digits"
+          />
+        </div>
+        {fieldErrors.ePin ? (
+          <p id="registration-epin-error" className="mt-2 text-xs font-bold text-red-500">
+            {fieldErrors.ePin}
+          </p>
+        ) : (
+          <p id="registration-epin-help" className="mt-2 text-xs font-semibold text-[rgb(var(--text-muted))]">
+            Leave blank and a secure 6-digit E-PIN will be generated.
           </p>
         )}
       </label>
@@ -2204,7 +2473,7 @@ function AuthPopup({
         role="dialog"
         aria-modal="true"
         aria-labelledby="auth-title"
-        className="relative w-full max-w-[460px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+        className="relative max-h-[calc(100vh-4rem)] w-full max-w-[460px] overflow-y-auto rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
       >
         <button
           type="button"

@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 
@@ -27,6 +28,9 @@ public record RegisterRequest(
 
         @NotNull(message = "Date of birth is required")
         @Past(message = "Date of birth must be in the past")
-        LocalDate dateOfBirth
+        LocalDate dateOfBirth,
+
+        @Pattern(regexp = "^$|\\d{6}", message = "E-PIN must contain exactly 6 digits")
+        String ePin
 ) {
 }

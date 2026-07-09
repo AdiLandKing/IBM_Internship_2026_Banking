@@ -18,15 +18,18 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final EPinCipher ePinCipher;
 
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService
+            JwtService jwtService,
+            EPinCipher ePinCipher
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.ePinCipher = ePinCipher;
     }
 
     @Transactional
@@ -44,6 +47,7 @@ public class AuthService {
                 request.lastName().trim(),
                 request.dateOfBirth()
         ));
+        user.updateEPin(ePinCipher.encrypt(UserService.resolveEPin(request.ePin())));
 
         return createAuthResponse(user);
     }
