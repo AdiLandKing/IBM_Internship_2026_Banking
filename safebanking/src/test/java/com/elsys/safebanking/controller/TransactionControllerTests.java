@@ -9,10 +9,10 @@ import com.elsys.safebanking.service.TransferService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -30,13 +30,13 @@ class TransactionControllerTests {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockitoBean
+    @MockBean
     private TransferService transferService;
 
-    @MockitoBean
+    @MockBean
     private AppUserDetailsService appUserDetailsService;
 
-    @MockitoBean
+    @MockBean
     private JwtService jwtService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -45,7 +45,7 @@ class TransactionControllerTests {
     void transfer_WithValidRequest_ReturnsOk() throws Exception {
         TransferRequest request = new TransferRequest(
                 "BG123456789", "BG987654321", BigDecimal.valueOf(100),
-                "Payment", "BGN", "BGN"
+                "Payment"
         );
 TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
         when(transferService.transfer(any(TransferRequest.class))).thenReturn(response);
@@ -63,7 +63,7 @@ TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
         // Невалидна заявка: празен IBAN и отрицателна сума
         TransferRequest request = new TransferRequest(
                 "", "BG987654321", BigDecimal.valueOf(-50),
-                "Payment", "BGN", "BGN"
+                "Payment"
         );
 
         mockMvc.perform(post("/api/v1/transactions/transfer")
