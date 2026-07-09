@@ -216,14 +216,16 @@ class AuthControllerTests {
     }
 
     @Test
-    void authenticatedUserCanChangeEPinWithCurrentPassword() throws Exception {
+    void authenticatedUserCanChangeEPinWithCurrentPasswordAndEPin() throws Exception {
         String token = register("client@example.com", "strongPassword123");
+        String currentEPin = getEPin(token);
 
         mockMvc.perform(put("/api/users/e-pin")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "strongPassword123",
+                                "currentEPin", currentEPin,
                                 "newEPin", "654321"
                         ))))
                 .andExpect(status().isOk())
@@ -238,12 +240,14 @@ class AuthControllerTests {
     @Test
     void changeEPinRejectsWrongPasswordAndInvalidValue() throws Exception {
         String token = register("client@example.com", "strongPassword123");
+        String currentEPin = getEPin(token);
 
         mockMvc.perform(put("/api/users/e-pin")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "wrongPassword",
+                                "currentEPin", currentEPin,
                                 "newEPin", "654321"
                         ))))
                 .andExpect(status().isUnauthorized())
@@ -254,6 +258,18 @@ class AuthControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of(
                                 "currentPassword", "strongPassword123",
+                                "currentEPin", "000000".equals(currentEPin) ? "111111" : "000000",
+                                "newEPin", "654321"
+                        ))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Current E-PIN is incorrect"));
+
+        mockMvc.perform(put("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "currentPassword", "strongPassword123",
+                                "currentEPin", currentEPin,
                                 "newEPin", "12345"
                         ))))
                 .andExpect(status().isBadRequest())
@@ -334,6 +350,17 @@ class AuthControllerTests {
 
         JsonNode jsonNode = objectMapper.readTree(result.getResponse().getContentAsString());
         return jsonNode.get("accessToken").asText();
+    }
+
+    private String getEPin(String token) throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        return objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("ePin")
+                .asText();
     }
 
     private String json(Object value) throws Exception {

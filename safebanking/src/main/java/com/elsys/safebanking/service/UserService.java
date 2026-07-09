@@ -7,6 +7,8 @@ import com.elsys.safebanking.dto.UserProfileResponse;
 import com.elsys.safebanking.exception.InvalidCredentialsException;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.UserRepository;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Locale;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -60,6 +62,12 @@ public class UserService {
         User user = getByEmail(email);
         if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
             throw new InvalidCredentialsException("Current password is incorrect");
+        }
+        if (user.getEPin() == null || !MessageDigest.isEqual(
+                ePinCipher.decrypt(user.getEPin()).getBytes(StandardCharsets.UTF_8),
+                request.currentEPin().getBytes(StandardCharsets.UTF_8)
+        )) {
+            throw new InvalidCredentialsException("Current E-PIN is incorrect");
         }
 
         user.updateEPin(ePinCipher.encrypt(request.newEPin()));

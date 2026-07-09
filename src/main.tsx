@@ -358,14 +358,19 @@ async function fetchEPin(authSession: AuthSession): Promise<string> {
   return result.ePin;
 }
 
-async function updateEPin(authSession: AuthSession, currentPassword: string, newEPin: string): Promise<string> {
+async function updateEPin(
+  authSession: AuthSession,
+  currentPassword: string,
+  currentEPin: string,
+  newEPin: string,
+): Promise<string> {
   const response = await fetch(`${API_BASE_URL}/api/users/e-pin`, {
     method: 'PUT',
     headers: {
       Authorization: getAuthorizationHeader(authSession),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ currentPassword, newEPin }),
+    body: JSON.stringify({ currentPassword, currentEPin, newEPin }),
   });
 
   if (!response.ok) {
@@ -1035,7 +1040,9 @@ function ChangeEPinModal({
 }>) {
   const [error, setError] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [currentEPin, setCurrentEPin] = React.useState('');
   const [newEPin, setNewEPin] = React.useState('');
+  const [showCurrentEPin, setShowCurrentEPin] = React.useState(false);
   const [showNewEPin, setShowNewEPin] = React.useState(false);
 
   React.useEffect(() => {
@@ -1061,6 +1068,10 @@ function ChangeEPinModal({
       setError('Enter your current password.');
       return;
     }
+    if (!/^\d{6}$/.test(currentEPin)) {
+      setError('Current E-PIN must contain exactly 6 digits.');
+      return;
+    }
     if (!/^\d{6}$/.test(newEPin)) {
       setError('New E-PIN must contain exactly 6 digits.');
       return;
@@ -1068,7 +1079,7 @@ function ChangeEPinModal({
 
     setIsSubmitting(true);
     try {
-      onChanged(await updateEPin(authSession, currentPassword, newEPin));
+      onChanged(await updateEPin(authSession, currentPassword, currentEPin, newEPin));
     } catch (changeError) {
       setError(changeError instanceof Error ? changeError.message : 'Unable to change your E-PIN.');
     } finally {
@@ -1107,7 +1118,7 @@ function ChangeEPinModal({
           Change E-PIN
         </h2>
         <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
-          Confirm your current password before setting a new 6-digit E-PIN.
+          Confirm your current password and E-PIN before setting a new 6-digit E-PIN.
         </p>
 
         <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
@@ -1121,6 +1132,33 @@ function ChangeEPinModal({
               required
               autoFocus
             />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Current E-PIN</span>
+            <div className="relative">
+              <input
+                name="currentEPin"
+                type={showCurrentEPin ? 'text' : 'password'}
+                inputMode="numeric"
+                autoComplete="off"
+                minLength={6}
+                maxLength={6}
+                pattern="[0-9]{6}"
+                value={currentEPin}
+                onChange={(event) => setCurrentEPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 pr-12 font-mono text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentEPin((visible) => !visible)}
+                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+                aria-label={showCurrentEPin ? 'Hide current E-PIN' : 'Show current E-PIN'}
+                aria-pressed={showCurrentEPin}
+              >
+                {showCurrentEPin ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
           </label>
           <label className="block">
             <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">New E-PIN</span>
