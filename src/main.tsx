@@ -978,11 +978,11 @@ function UserPage({
   authSession,
   showHome,
   showAccounts,
-}: {
+}: Readonly<{
   authSession: AuthSession;
   showHome: () => void;
   showAccounts: () => void;
-}) {
+}>) {
   const { user } = authSession;
   const [ePin, setEPin] = React.useState('');
   const [isEPinSaved, setIsEPinSaved] = React.useState(false);
@@ -1117,9 +1117,9 @@ function UserPage({
                     Save E-PIN
                   </button>
                   {isEPinSaved && (
-                    <p className="text-sm font-bold text-emerald-500" role="status">
+                    <output className="text-sm font-bold text-emerald-500">
                       E-PIN saved locally.
-                    </p>
+                    </output>
                   )}
                 </div>
               </form>
