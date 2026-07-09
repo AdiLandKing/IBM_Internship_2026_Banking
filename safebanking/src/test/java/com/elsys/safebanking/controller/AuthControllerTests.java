@@ -3,6 +3,7 @@ package com.elsys.safebanking.controller;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.blankOrNullString;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.model.UserRole;
 import com.elsys.safebanking.repository.UserRepository;
+import com.elsys.safebanking.validation.EPinPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
@@ -23,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -113,6 +116,25 @@ class AuthControllerTests {
 
         User savedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
         assertTrue(passwordEncoder.matches(generatedEPin, savedUser.getEPinHash()));
+    }
+
+    @Test
+    void registrationFlushesEPinHashBeforeReturningToken() throws Exception {
+        String token = registerWithEPin("client@example.com", "123456");
+
+        User savedUser = userRepository.findByEmailIgnoreCase("client@example.com").orElseThrow();
+        assertTrue(passwordEncoder.matches("123456", savedUser.getEPinHash()));
+
+        mockMvc.perform(get("/api/users/e-pin/status")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.set").value(true))
+                .andExpect(jsonPath("$.ePin").doesNotExist());
+    }
+
+    @Test
+    void testsUseProductionPasswordEncoderBean() {
+        assertInstanceOf(BCryptPasswordEncoder.class, passwordEncoder);
     }
 
     @Test
@@ -300,6 +322,39 @@ class AuthControllerTests {
                         ))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.newEPin").exists());
+    }
+
+    @Test
+    void changeEPinRateLimitsAfterRepeatedFailures() throws Exception {
+        String token = registerWithEPin("client@example.com", "123456");
+        String clientIp = "203.0.113.10";
+
+        for (int attempt = 0; attempt < EPinPolicy.MAX_FAILED_ATTEMPTS; attempt++) {
+            mockMvc.perform(put("/api/users/e-pin")
+                            .header("Authorization", "Bearer " + token)
+                            .header("X-Forwarded-For", clientIp)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(Map.of(
+                                    "currentPassword", "strongPassword123",
+                                    "currentEPin", "000000",
+                                    "newEPin", "654321"
+                            ))))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.message").value("Current password or E-PIN is incorrect"));
+        }
+
+        mockMvc.perform(put("/api/users/e-pin")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Forwarded-For", clientIp)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of(
+                                "currentPassword", "strongPassword123",
+                                "currentEPin", "000000",
+                                "newEPin", "654321"
+                        ))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("Too Many E-PIN Attempts"))
+                .andExpect(jsonPath("$.ePin").doesNotExist());
     }
 
     @Test

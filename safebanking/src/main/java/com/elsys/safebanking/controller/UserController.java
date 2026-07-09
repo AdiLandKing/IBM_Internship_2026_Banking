@@ -6,6 +6,7 @@ import com.elsys.safebanking.dto.SetEPinRequest;
 import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
 import com.elsys.safebanking.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,16 +47,26 @@ public class UserController {
     @PostMapping("/e-pin")
     public EPinStatusResponse setEPin(
             Principal principal,
-            @Valid @RequestBody SetEPinRequest request
+            @Valid @RequestBody SetEPinRequest request,
+            HttpServletRequest servletRequest
     ) {
-        return userService.setEPin(principal.getName(), request);
+        return userService.setEPin(principal.getName(), request, clientIp(servletRequest));
     }
 
     @PutMapping("/e-pin")
     public EPinStatusResponse changeEPin(
             Principal principal,
-            @Valid @RequestBody ChangeEPinRequest request
+            @Valid @RequestBody ChangeEPinRequest request,
+            HttpServletRequest servletRequest
     ) {
-        return userService.changeEPin(principal.getName(), request);
+        return userService.changeEPin(principal.getName(), request, clientIp(servletRequest));
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",", 2)[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

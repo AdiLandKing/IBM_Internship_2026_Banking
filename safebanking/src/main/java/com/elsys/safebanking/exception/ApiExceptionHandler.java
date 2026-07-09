@@ -54,6 +54,16 @@ public class ApiExceptionHandler {
                 ));
     }
 
+    @ExceptionHandler(EPinRateLimitException.class)
+    ResponseEntity<ApiError> handleEPinRateLimit(EPinRateLimitException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiError.of(
+                        HttpStatus.TOO_MANY_REQUESTS.value(),
+                        "Too Many E-PIN Attempts",
+                        exception.getMessage()
+                ));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();

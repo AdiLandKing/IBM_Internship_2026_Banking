@@ -38,15 +38,16 @@ public class AuthService {
             throw new DuplicateEmailException("An account with this email already exists");
         }
 
-        User user = userRepository.save(new User(
+        EPinPolicy.Resolution ePinResolution = EPinPolicy.resolve(request.ePin());
+        User user = new User(
                 email,
                 passwordEncoder.encode(request.password()),
                 request.firstName().trim(),
                 request.lastName().trim(),
                 request.dateOfBirth()
-        ));
-        EPinPolicy.Resolution ePinResolution = EPinPolicy.resolve(request.ePin());
+        );
         user.updateEPinHash(passwordEncoder.encode(ePinResolution.value()));
+        user = userRepository.saveAndFlush(user);
 
         return createAuthResponse(
                 user,
