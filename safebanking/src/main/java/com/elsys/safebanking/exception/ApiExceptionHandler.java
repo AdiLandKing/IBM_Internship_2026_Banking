@@ -24,6 +24,46 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(HttpStatus.UNAUTHORIZED.value(), "Unauthorized", exception.getMessage()));
     }
 
+    @ExceptionHandler(EPinVerificationException.class)
+    ResponseEntity<ApiError> handleEPinVerification(EPinVerificationException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiError.of(
+                        HttpStatus.UNAUTHORIZED.value(),
+                        "E-PIN Verification Failed",
+                        exception.getMessage()
+                ));
+    }
+
+    @ExceptionHandler(EPinReuseException.class)
+    ResponseEntity<ApiError> handleEPinReuse(EPinReuseException exception) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(
+                        HttpStatus.BAD_REQUEST.value(),
+                        "Invalid E-PIN Change",
+                        exception.getMessage()
+                ));
+    }
+
+    @ExceptionHandler(EPinAlreadySetException.class)
+    ResponseEntity<ApiError> handleEPinAlreadySet(EPinAlreadySetException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(
+                        HttpStatus.CONFLICT.value(),
+                        "E-PIN Already Set",
+                        exception.getMessage()
+                ));
+    }
+
+    @ExceptionHandler(EPinRateLimitException.class)
+    ResponseEntity<ApiError> handleEPinRateLimit(EPinRateLimitException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiError.of(
+                        HttpStatus.TOO_MANY_REQUESTS.value(),
+                        "Too Many E-PIN Attempts",
+                        exception.getMessage()
+                ));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
