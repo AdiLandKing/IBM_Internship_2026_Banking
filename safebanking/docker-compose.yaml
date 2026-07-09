@@ -1,3 +1,6 @@
+# To forward Stripe webhook events to the local app during development, run:
+#   stripe listen --forward-to localhost:8080/api/payments/webhook
+# Requires the Stripe CLI: https://stripe.com/docs/stripe-cli
 services:
   db:
     image: postgres:15-alpine
