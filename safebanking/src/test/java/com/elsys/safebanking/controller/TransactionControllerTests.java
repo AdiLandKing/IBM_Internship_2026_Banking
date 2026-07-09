@@ -9,10 +9,10 @@ import com.elsys.safebanking.service.TransferService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -30,13 +30,13 @@ class TransactionControllerTests {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private TransferService transferService;
 
-    @MockBean
+    @MockitoBean
     private AppUserDetailsService appUserDetailsService;
 
-    @MockBean
+    @MockitoBean
     private JwtService jwtService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -47,7 +47,8 @@ class TransactionControllerTests {
                 "BG123456789", "BG987654321", BigDecimal.valueOf(100),
                 "Payment"
         );
-TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
+        TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
+        
         when(transferService.transfer(any(TransferRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/transactions/transfer")
@@ -60,7 +61,6 @@ TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
 
     @Test
     void transfer_WithInvalidRequest_ReturnsBadRequest() throws Exception {
-        // Невалидна заявка: празен IBAN и отрицателна сума
         TransferRequest request = new TransferRequest(
                 "", "BG987654321", BigDecimal.valueOf(-50),
                 "Payment"
