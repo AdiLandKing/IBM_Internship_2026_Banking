@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Activity, ArrowLeft, Calendar, Check, ChartPie, Copy, CreditCard, Eye, EyeOff, Landmark, LockKeyhole, Mail, Moon, Pencil, Plus, Search, Settings, ShieldCheck, Sun, UserPlus, Users, Wallet, X, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, Calendar, Check, ChartPie, Copy, CreditCard, Eye, EyeOff, KeyRound, Landmark, LockKeyhole, Mail, Moon, Pencil, Plus, Search, Settings, ShieldCheck, Sun, Unlock, UserPlus, UserRound, Users, Wallet, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './styles.css';
 
@@ -114,6 +114,7 @@ const clientAccounts: ClientAccount[] = [
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
   if (pathname === '/accounts') return 'accounts';
+  if (pathname === '/profile') return 'profile';
   if (pathname === '/portfolio') return 'portfolio';
   if (pathname === '/transactions') return 'transactions';
   return 'home';
@@ -122,6 +123,7 @@ function getPageFromPath(pathname: string): PageMode {
 function getPathFromPage(page: PageMode) {
   if (page === 'admin') return '/admin';
   if (page === 'accounts') return '/accounts';
+  if (page === 'profile') return '/profile';
   if (page === 'portfolio') return '/portfolio';
   if (page === 'transactions') return '/transactions';
   return '/';
@@ -160,7 +162,7 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 }
 
 type AuthMode = 'login' | 'register';
-type PageMode = 'home' | 'accounts' | 'transactions' | 'portfolio' | 'admin';
+type PageMode = 'home' | 'accounts' | 'profile' | 'transactions' | 'portfolio' | 'admin';
 
 const DEFAULT_API_BASE_URL = typeof window !== 'undefined' && window.location.port !== '5173'
   ? window.location.origin
@@ -357,6 +359,7 @@ function Header({
   showAdmin,
   showHome,
   showAccounts,
+  showProfile,
   showTransactions,
   showPortfolio,
 }: {
@@ -368,6 +371,7 @@ function Header({
   showAdmin: () => void;
   showHome: () => void;
   showAccounts: () => void;
+  showProfile: () => void;
   showTransactions: () => void;
   showPortfolio: () => void;
 }) {
@@ -414,9 +418,13 @@ function Header({
         <div className="flex items-center gap-5">
           {authSession ? (
             <div className="hidden items-center gap-3 sm:flex">
-              <span className="text-sm font-semibold text-[rgb(var(--text-muted))]">
+              <button
+                type="button"
+                onClick={showProfile}
+                className="text-sm font-semibold text-[rgb(var(--text-muted))] underline decoration-[rgb(var(--gold))]/70 underline-offset-4 transition hover:text-[rgb(var(--text-strong))]"
+              >
                 {authSession.user.firstName} {authSession.user.lastName}
-              </span>
+              </button>
               <button
                 type="button"
                 onClick={onLogout}
@@ -432,6 +440,17 @@ function Header({
               className="hidden text-sm font-semibold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))] sm:inline"
             >
               Client Login
+            </button>
+          )}
+          {authSession && (
+            <button
+              type="button"
+              onClick={showProfile}
+              className="grid h-10 w-10 place-items-center rounded-full border border-[rgb(var(--line-strong))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+              aria-label="Open user page"
+              title="User page"
+            >
+              <UserRound size={18} strokeWidth={1.8} />
             </button>
           )}
           <button
@@ -577,9 +596,11 @@ function AccountsPage({
   const [draftName, setDraftName] = React.useState('');
   const [isIbanVisible, setIsIbanVisible] = React.useState(false);
   const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
+  const [lockedAccountIds, setLockedAccountIds] = React.useState<Set<string>>(() => new Set());
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
   const selectedName = accountNames[selectedAccount.id];
+  const isSelectedAccountLocked = lockedAccountIds.has(selectedAccount.id);
   const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
 
   function selectAccount(account: ClientAccount) {
@@ -633,6 +654,18 @@ function AccountsPage({
     setIsCreateAccountOpen(false);
     setEditingName(false);
     setIsIbanVisible(false);
+  }
+
+  function toggleSelectedAccountLock() {
+    setLockedAccountIds((current) => {
+      const next = new Set(current);
+      if (next.has(selectedAccount.id)) {
+        next.delete(selectedAccount.id);
+      } else {
+        next.add(selectedAccount.id);
+      }
+      return next;
+    });
   }
 
   return (
@@ -697,6 +730,8 @@ function AccountsPage({
             <div className="divide-y divide-[rgb(var(--line))]">
               {accounts.map((account) => {
                 const isSelected = account.id === selectedAccount.id;
+                const isLocked = lockedAccountIds.has(account.id);
+                const AccountIcon = isLocked ? LockKeyhole : CreditCard;
                 return (
                   <button
                     key={account.id}
@@ -713,7 +748,7 @@ function AccountsPage({
                         <p className="truncate font-bold text-[rgb(var(--text-strong))]">{accountNames[account.id]}</p>
                         <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
                       </div>
-                      <CreditCard
+                      <AccountIcon
                         size={18}
                         strokeWidth={1.7}
                         className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
@@ -822,10 +857,11 @@ function AccountsPage({
               <button
                 type="button"
                 onClick={showTransactions}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+                disabled={isSelectedAccountLocked}
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
               >
                 <Zap size={16} strokeWidth={1.8} />
-                Transfer from this account
+                {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
               </button>
               <button
                 type="button"
@@ -834,6 +870,16 @@ function AccountsPage({
               >
                 <Pencil size={16} strokeWidth={1.8} />
                 Edit account name
+              </button>
+              <button
+                type="button"
+                onClick={toggleSelectedAccountLock}
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+              >
+                {isSelectedAccountLocked
+                  ? <Unlock size={16} strokeWidth={1.8} />
+                  : <LockKeyhole size={16} strokeWidth={1.8} />}
+                {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
               </button>
             </div>
           </article>
@@ -917,6 +963,170 @@ function AccountsPage({
           </section>
         </div>
       )}
+    </section>
+  );
+}
+
+function formatProfileDate(value: string | null, fallback: string) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(date);
+}
+
+function UserPage({
+  authSession,
+  showHome,
+  showAccounts,
+}: {
+  authSession: AuthSession;
+  showHome: () => void;
+  showAccounts: () => void;
+}) {
+  const { user } = authSession;
+  const [ePin, setEPin] = React.useState('');
+  const [isEPinSaved, setIsEPinSaved] = React.useState(false);
+  const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
+  const userDetails = [
+    ['First name', user.firstName],
+    ['Last name', user.lastName],
+    ['Email address', user.email],
+    ['Date of birth', formatProfileDate(user.dateOfBirth, 'Not provided')],
+    ['User role', user.role === 'ADMIN' ? 'Administrator' : 'Client'],
+    ['Client since', formatProfileDate(user.createdAt, 'Not available')],
+  ];
+
+  function saveEPin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!/^\d{6}$/.test(ePin)) return;
+    setIsEPinSaved(true);
+  }
+
+  return (
+    <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
+      <div className="mx-auto max-w-[980px]">
+        <button
+          type="button"
+          onClick={showHome}
+          className="inline-flex items-center gap-2 text-sm font-bold text-[rgb(var(--text-muted))] transition hover:text-[rgb(var(--text-strong))]"
+        >
+          <ArrowLeft size={16} strokeWidth={1.8} />
+          Back to overview
+        </button>
+
+        <div className="mt-10 flex flex-col justify-between gap-8 border-b border-[rgb(var(--line))] pb-10 md:flex-row md:items-end">
+          <div>
+            <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Client Profile</p>
+            <h1 className="mt-4 font-display text-[clamp(3rem,5vw,4.5rem)] font-semibold leading-none text-[rgb(var(--text-strong))]">
+              User Information
+            </h1>
+            <p className="mt-5 max-w-[610px] text-base leading-7 text-[rgb(var(--text-muted))]">
+              Personal and security information associated with your SAFE Bank access.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={showAccounts}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+          >
+            <Wallet size={17} strokeWidth={1.8} />
+            Manage accounts
+          </button>
+        </div>
+
+        <div className="mt-10 grid gap-8 lg:grid-cols-[280px_1fr]">
+          <aside className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 text-center">
+            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full border border-[rgb(var(--gold))]/40 bg-[rgb(var(--icon-bg))] font-display text-3xl font-bold text-[rgb(var(--gold))]">
+              {initials}
+            </div>
+            <h2 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">
+              {user.firstName} {user.lastName}
+            </h2>
+            <p className="mt-2 break-all text-sm font-semibold text-[rgb(var(--text-muted))]">{user.email}</p>
+            <div className="mt-6 border-t border-[rgb(var(--line))] pt-5">
+              <div className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.2em] text-emerald-500">
+                <ShieldCheck size={15} strokeWidth={1.9} />
+                Verified user
+              </div>
+            </div>
+          </aside>
+
+          <div className="space-y-8">
+            <section className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault sm:p-8">
+              <div className="flex items-center gap-3 border-b border-[rgb(var(--line))] pb-5">
+                <UserRound size={19} strokeWidth={1.8} className="text-[rgb(var(--gold))]" />
+                <h2 className="font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">Personal details</h2>
+              </div>
+              <dl className="mt-2 divide-y divide-[rgb(var(--line))]">
+                {userDetails.map(([label, value]) => (
+                  <div key={label} className="grid gap-2 py-4 sm:grid-cols-[170px_1fr] sm:items-center">
+                    <dt className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">{label}</dt>
+                    <dd className="break-words text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            <section className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 sm:p-8">
+              <div className="flex items-center gap-3 border-b border-[rgb(var(--line))] pb-5">
+                <KeyRound size={19} strokeWidth={1.8} className="text-[rgb(var(--gold))]" />
+                <h2 className="font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">Password</h2>
+              </div>
+              <div className="mt-6">
+                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">Current password</p>
+                <div className="mt-3 flex items-center gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3">
+                  <LockKeyhole size={17} strokeWidth={1.8} className="shrink-0 text-[rgb(var(--text-muted))]" />
+                  <span className="font-mono text-base tracking-[0.2em] text-[rgb(var(--text-strong))]" aria-label="Password hidden">
+                    ••••••••••••
+                  </span>
+                </div>
+                <p className="mt-3 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+                  Your password is hidden and is never returned by the server.
+                </p>
+              </div>
+              <form className="mt-7 border-t border-[rgb(var(--line))] pt-6" onSubmit={saveEPin}>
+                <label className="block">
+                  <span className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">E-PIN</span>
+                  <input
+                    name="ePin"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    minLength={6}
+                    maxLength={6}
+                    pattern="[0-9]{6}"
+                    value={ePin}
+                    onChange={(event) => {
+                      setEPin(event.target.value.replace(/\D/g, '').slice(0, 6));
+                      setIsEPinSaved(false);
+                    }}
+                    className="mt-3 w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none placeholder:tracking-normal placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                    placeholder="Enter 6-digit E-PIN"
+                    aria-describedby="epin-requirements"
+                    required
+                  />
+                </label>
+                <p id="epin-requirements" className="mt-2 text-xs font-semibold text-[rgb(var(--text-muted))]">
+                  Enter exactly 6 numbers.
+                </p>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <button
+                    type="submit"
+                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+                  >
+                    Save E-PIN
+                  </button>
+                  {isEPinSaved && (
+                    <p className="text-sm font-bold text-emerald-500" role="status">
+                      E-PIN saved locally.
+                    </p>
+                  )}
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -2195,6 +2405,10 @@ function App() {
     navigateTo('accounts');
   }, [navigateTo]);
 
+  const showProfile = React.useCallback(() => {
+    navigateTo('profile');
+  }, [navigateTo]);
+
   const showPortfolio = React.useCallback(() => {
     navigateTo('portfolio');
   }, [navigateTo]);
@@ -2266,6 +2480,7 @@ function App() {
         showAdmin={showAdmin}
         showHome={showHome}
         showAccounts={showAccounts}
+        showProfile={showProfile}
         showTransactions={showTransactions}
         showPortfolio={showPortfolio}
       />
@@ -2278,6 +2493,7 @@ function App() {
           </>
         )}
         {page === 'accounts' && <AccountsPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'profile' && <UserPage authSession={authSession} showHome={showHome} showAccounts={showAccounts} />}
         {page === 'transactions' && <TransactionsPage showHome={showHome} />}
         {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
         {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
