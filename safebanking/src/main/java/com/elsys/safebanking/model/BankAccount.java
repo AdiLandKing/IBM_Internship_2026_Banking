@@ -10,6 +10,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+import java.math.BigDecimal;
+
 import lombok.Getter;
 
 @Getter
@@ -28,8 +30,8 @@ public class BankAccount {
     @Column(nullable = false, unique = true, length = 34)
     private String iban;
 
-    @Column(nullable = false)
-    private Integer balance;
+    @Column(nullable = false, precision = 18, scale = 2)
+    private BigDecimal balance;
 
     @Column(nullable = false, length = 3)
     private String currency;
@@ -41,7 +43,7 @@ public class BankAccount {
     protected BankAccount() {
     }
 
-    public BankAccount(String accountName, String iban, Integer balance, String currency, User owner) {
+    public BankAccount(String accountName, String iban, BigDecimal balance, String currency, User owner) {
         this.accountName = accountName;
         this.iban = iban;
         this.balance = balance;
@@ -49,7 +51,7 @@ public class BankAccount {
         this.owner = owner;
     }
 
-    public void updateBalance(Integer balance) {
+    public void updateBalance(BigDecimal balance) {
         this.balance = balance;
     }
 

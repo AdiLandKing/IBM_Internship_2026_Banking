@@ -7,6 +7,7 @@ import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,14 +37,14 @@ class CreateBankAccountRequestTest {
 
     @Test
     void validRequest_producesNoViolations() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", 1000, "EUR");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("1000.00"), "EUR");
 
         assertThat(validate(req)).isEmpty();
     }
 
     @Test
     void validRequest_zeroBalance_isAllowed() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Current", "GB29NWBK60161331926819", 0, "USD");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Current", "GB29NWBK60161331926819", BigDecimal.ZERO, "USD");
 
         assertThat(validate(req)).isEmpty();
     }
@@ -51,7 +52,7 @@ class CreateBankAccountRequestTest {
     @Test
     void validRequest_negativeBalance_isAllowed() {
         // balance is @NotNull only — negative values are intentionally permitted
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Overdrawn", "GB29NWBK60161331926819", -500, "GBP");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Overdrawn", "GB29NWBK60161331926819", new BigDecimal("-500.00"), "GBP");
 
         assertThat(validate(req)).isEmpty();
     }
@@ -62,7 +63,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void nullAccountName_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest(null, "GB29NWBK60161331926819", 100, "EUR");
+        CreateBankAccountRequest req = new CreateBankAccountRequest(null, "GB29NWBK60161331926819", new BigDecimal("100.00"), "EUR");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -71,7 +72,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void blankAccountName_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("   ", "GB29NWBK60161331926819", 100, "EUR");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("   ", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EUR");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -80,7 +81,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void emptyAccountName_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("", "GB29NWBK60161331926819", 100, "EUR");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EUR");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -93,7 +94,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void nullIban_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", null, 100, "EUR");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", null, new BigDecimal("100.00"), "EUR");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -102,7 +103,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void blankIban_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "   ", 100, "EUR");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "   ", new BigDecimal("100.00"), "EUR");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -128,7 +129,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void nullCurrency_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", 100, null);
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), null);
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -137,7 +138,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void blankCurrency_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", 100, "   ");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "   ");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -147,7 +148,7 @@ class CreateBankAccountRequestTest {
     @Test
     void tooShortCurrency_producesViolation() {
         // "EU" is 2 chars — must be exactly 3
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", 100, "EU");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EU");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -157,7 +158,7 @@ class CreateBankAccountRequestTest {
     @Test
     void tooLongCurrency_producesViolation() {
         // "EURO" is 4 chars — must be exactly 3
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", 100, "EURO");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EURO");
 
         Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
 
@@ -166,7 +167,7 @@ class CreateBankAccountRequestTest {
 
     @Test
     void exactlyThreeCharCurrency_isValid() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", 100, "BGN");
+        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "BGN");
 
         assertThat(validate(req)).isEmpty();
     }
