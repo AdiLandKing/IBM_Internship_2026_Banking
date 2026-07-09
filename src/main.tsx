@@ -324,6 +324,7 @@ async function authenticate(mode: AuthMode, payload: Record<string, string>): Pr
   return response.json();
 }
 
+
 async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile> {
   const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
     headers: {
@@ -338,10 +339,29 @@ async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile
   return response.json();
 }
 
+function getJwtExpiration(token: string): number | null {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      window.atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload).exp || null;
+  } catch {
+    return null;
+  }
+}
+
 function readStoredAuthSession(): AuthSession | null {
   try {
     const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-    return stored ? JSON.parse(stored) as AuthSession : null;
+    if (!stored) return null;
+    
+    const session = JSON.parse(stored) as AuthSession;
+    return session;
   } catch {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     return null;
@@ -2171,6 +2191,8 @@ function App() {
     return getPageFromPath(window.location.pathname);
   });
 
+  const [showExpiredToast, setShowExpiredToast] = React.useState(false);
+
   const openAuth = React.useCallback((mode: AuthMode) => {
     setAuthMode(mode);
     setIsAuthOpen(true);
@@ -2214,6 +2236,14 @@ function App() {
     setAuthMode('login');
   }, []);
 
+  const triggerSessionExpired = React.useCallback(() => {
+    setShowExpiredToast(true);
+    setTimeout(() => {
+      handleLogout();
+      setShowExpiredToast(false);
+    }, 5000);
+  }, [handleLogout]);
+
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('nexvault-theme', theme);
@@ -2236,6 +2266,25 @@ function App() {
     }
   }, [authSession]);
 
+  React.useEffect(() => {
+    if (!authSession) return;
+
+    const exp = getJwtExpiration(authSession.accessToken);
+    if (!exp) return;
+
+    const currentTime = Math.floor(Date.now() / 1000);
+    const timeUntilExpiry = exp - currentTime;
+
+    if (timeUntilExpiry <= 0) {
+      triggerSessionExpired();
+    } else {
+      const timerId = setTimeout(() => {
+        triggerSessionExpired();
+      }, timeUntilExpiry * 1000);
+      return () => clearTimeout(timerId);
+    }
+  }, [authSession, triggerSessionExpired]);
+
   if (!authSession) {
     return (
       <>
@@ -2257,6 +2306,22 @@ function App() {
 
   return (
     <>
+      {showExpiredToast && (
+        <div className="fixed bottom-6 right-6 z-[100] max-w-sm rounded-lg border border-red-500/30 bg-red-500/10 p-4 shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-bottom-5">
+          <div className="flex gap-3">
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500/20 text-red-500">
+              <Zap size={12} strokeWidth={3} />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-red-500">Session Expired</p>
+              <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">
+                For your security, you will be automatically redirected to the login screen in 5 seconds.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Header
         theme={theme}
         toggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
@@ -2293,9 +2358,3 @@ function App() {
     </>
   );
 }
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
