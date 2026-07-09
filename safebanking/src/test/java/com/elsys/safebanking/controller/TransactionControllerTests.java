@@ -2,6 +2,7 @@ package com.elsys.safebanking.controller;
 
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
+import com.elsys.safebanking.model.TransactionStatus;
 import com.elsys.safebanking.service.AppUserDetailsService;
 import com.elsys.safebanking.service.JwtService;
 import com.elsys.safebanking.service.TransferService;
@@ -44,10 +45,10 @@ class TransactionControllerTests {
     void transfer_WithValidRequest_ReturnsOk() throws Exception {
         TransferRequest request = new TransferRequest(
                 "BG123456789", "BG987654321", BigDecimal.valueOf(100),
-                "Payment", "BGN", "BGN"
+                "Payment"
         );
-        TransferResponse response = new TransferResponse(1L, "PENDING");
-
+        TransferResponse response = new TransferResponse(1L, TransactionStatus.PENDING);
+        
         when(transferService.transfer(any(TransferRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/transactions/transfer")
@@ -60,10 +61,9 @@ class TransactionControllerTests {
 
     @Test
     void transfer_WithInvalidRequest_ReturnsBadRequest() throws Exception {
-        // Невалидна заявка: празен IBAN и отрицателна сума
         TransferRequest request = new TransferRequest(
                 "", "BG987654321", BigDecimal.valueOf(-50),
-                "Payment", "BGN", "BGN"
+                "Payment"
         );
 
         mockMvc.perform(post("/api/v1/transactions/transfer")

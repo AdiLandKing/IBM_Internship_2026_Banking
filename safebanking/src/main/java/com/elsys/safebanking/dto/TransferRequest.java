@@ -17,12 +17,6 @@ public record TransferRequest(
         BigDecimal amount,
 
         @NotBlank(message = "Reason is required")
-        String reason,
-
-        @NotBlank(message = "Source currency is required")
-        String fromCurrency,
-
-        @NotBlank(message = "Destination currency is required")
-        String toCurrency
+        String reason
 ) {
 }
