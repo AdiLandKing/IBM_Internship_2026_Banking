@@ -37,12 +37,6 @@ public class BankingTransaction {
     @Column(nullable = false, length = 20)
     private TransactionStatus status;
 
-    @Column(nullable = false, name = "from_currency", length = 3)
-    private String fromCurrency;
-
-    @Column(nullable = false, name = "to_currency", length = 3)
-    private String toCurrency;
-
     @Column(nullable = false, name = "exchange_rate_used", precision = 18, scale = 6)
     private BigDecimal exchangeRateUsed;
 

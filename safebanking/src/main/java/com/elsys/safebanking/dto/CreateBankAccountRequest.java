@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
+
 public record CreateBankAccountRequest(
 
         @NotBlank
@@ -13,7 +15,7 @@ public record CreateBankAccountRequest(
         String iban,
 
         @NotNull
-        Integer balance,
+        BigDecimal balance,
 
         @NotBlank
         @Size(min = 3, max = 3)
