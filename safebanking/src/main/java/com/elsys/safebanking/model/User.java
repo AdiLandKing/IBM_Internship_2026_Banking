@@ -11,6 +11,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.LocalDate;
 
 import lombok.Getter;
 
@@ -35,6 +36,9 @@ public class User {
     @Column(nullable = false, length = 100)
     private String lastName;
 
+    @Column(name = "date_of_birth")
+    private LocalDate dateOfBirth;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'USER'")
     private UserRole role = UserRole.USER;
@@ -52,11 +56,20 @@ public class User {
         this(email, passwordHash, firstName, lastName, UserRole.USER);
     }
 
+    public User(String email, String passwordHash, String firstName, String lastName, LocalDate dateOfBirth) {
+        this(email, passwordHash, firstName, lastName, dateOfBirth, UserRole.USER);
+    }
+
     public User(String email, String passwordHash, String firstName, String lastName, UserRole role) {
+        this(email, passwordHash, firstName, lastName, null, role);
+    }
+
+    public User(String email, String passwordHash, String firstName, String lastName, LocalDate dateOfBirth, UserRole role) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.firstName = firstName;
         this.lastName = lastName;
+        this.dateOfBirth = dateOfBirth;
         this.role = role;
     }
 
