@@ -10,7 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface BankAccountRepository extends JpaRepository<BankAccount, String> {
     long countByOwner(User owner);
 
-    List<BankAccount> findByOwnerIdOrderByCreatedAtDesc(Long ownerId);
+    List<BankAccount> findByOwnerIdOrderByIbanAsc(Long ownerId);
 
     Optional<BankAccount> findByIbanAndOwnerId(String iban, Long ownerId);
 

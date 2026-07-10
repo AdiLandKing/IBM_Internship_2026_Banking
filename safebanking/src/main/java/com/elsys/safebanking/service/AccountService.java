@@ -52,7 +52,7 @@ public class AccountService {
     @Transactional(readOnly = true)
     public List<BankAccountResponse> getAccounts(String email) {
         User owner = userService.getByEmail(email);
-        return bankAccountRepository.findByOwnerIdOrderByCreatedAtDesc(owner.getId())
+        return bankAccountRepository.findByOwnerIdOrderByIbanAsc(owner.getId())
                 .stream()
                 .map(BankAccountResponse::from)
                 .toList();

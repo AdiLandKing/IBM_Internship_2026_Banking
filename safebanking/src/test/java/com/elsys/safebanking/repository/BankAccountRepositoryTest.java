@@ -36,7 +36,7 @@ class BankAccountRepositoryTest {
     }
 
     @Test
-    void savePersistsAccountWithIbanPrimaryKeyAndTimestamps() {
+    void savePersistsAccountWithIbanPrimaryKey() {
         BankAccount saved = bankAccountRepository.save(new BankAccount(
                 "BG4K82L9P01M7Q3X5Z",
                 "Savings",
@@ -49,8 +49,6 @@ class BankAccountRepositoryTest {
         assertThat(saved.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(saved.getCurrency()).isEqualTo("EUR");
         assertThat(saved.getOwner().getId()).isEqualTo(userA.getId());
-        assertThat(saved.getCreatedAt()).isNotNull();
-        assertThat(saved.getUpdatedAt()).isNotNull();
     }
 
     @Test
@@ -64,12 +62,12 @@ class BankAccountRepositoryTest {
     }
 
     @Test
-    void findByOwnerIdOrderByCreatedAtDescReturnsOnlyOwnedAccounts() {
+    void findByOwnerIdOrderByIbanAscReturnsOnlyOwnedAccounts() {
         bankAccountRepository.save(new BankAccount("BG11NWBK6016133192", "Savings", "EUR", userA));
         bankAccountRepository.save(new BankAccount("BG22NWBK6016133192", "Current", "USD", userA));
         bankAccountRepository.save(new BankAccount("BG33NWBK6016133192", "Business", "GBP", userB));
 
-        List<BankAccount> results = bankAccountRepository.findByOwnerIdOrderByCreatedAtDesc(userA.getId());
+        List<BankAccount> results = bankAccountRepository.findByOwnerIdOrderByIbanAsc(userA.getId());
 
         assertThat(results).hasSize(2);
         assertThat(results)

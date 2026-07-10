@@ -83,8 +83,6 @@ type AccountResponse = {
   name: string;
   balance: number | string;
   currency: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
 type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
@@ -377,7 +375,6 @@ async function saveEPin(
 }
 
 function accountResponseToClientAccount(account: AccountResponse): ClientAccount {
-  const opened = formatProfileDate(account.createdAt, 'Pending');
   return {
     id: account.iban,
     name: account.name,
@@ -385,7 +382,7 @@ function accountResponseToClientAccount(account: AccountResponse): ClientAccount
     iban: account.iban,
     balance: Number(account.balance),
     currency: account.currency,
-    opened,
+    opened: 'Not available',
     branch: 'Sofia Private Office',
   };
 }

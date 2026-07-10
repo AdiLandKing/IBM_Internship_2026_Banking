@@ -28,17 +28,13 @@ class BankAccountResponseTest {
                 "BG4K82L9P01M7Q3X5Z",
                 "Main Account",
                 BigDecimal.ZERO,
-                "BGN",
-                null,
-                null
+                "BGN"
         );
         BankAccountResponse second = new BankAccountResponse(
                 "BG4K82L9P01M7Q3X5Z",
                 "Main Account",
                 BigDecimal.ZERO,
-                "BGN",
-                null,
-                null
+                "BGN"
         );
 
         assertThat(first).isEqualTo(second);

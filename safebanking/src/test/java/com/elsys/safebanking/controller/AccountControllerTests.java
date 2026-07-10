@@ -63,9 +63,7 @@ class AccountControllerTests {
                 .andExpect(jsonPath("$.iban", matchesPattern(IBAN_PATTERN)))
                 .andExpect(jsonPath("$.name").value("Main Account"))
                 .andExpect(jsonPath("$.currency").value("BGN"))
-                .andExpect(jsonPath("$.balance").value(0))
-                .andExpect(jsonPath("$.createdAt").exists())
-                .andExpect(jsonPath("$.updatedAt").exists());
+                .andExpect(jsonPath("$.balance").value(0));
     }
 
     @Test
