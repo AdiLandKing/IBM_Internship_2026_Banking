@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -22,6 +23,36 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException exception) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.of(HttpStatus.UNAUTHORIZED.value(), "Unauthorized", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccountNotFoundException.class)
+    ResponseEntity<ApiError> handleAccountNotFound(AccountNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), "Not Found", exception.getMessage()));
+    }
+
+    @ExceptionHandler(InsufficientFundsException.class)
+    ResponseEntity<ApiError> handleInsufficientFunds(InsufficientFundsException exception) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiError.of(HttpStatus.UNPROCESSABLE_ENTITY.value(), "Unprocessable Entity", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccountSuspendedException.class)
+    ResponseEntity<ApiError> handleAccountSuspended(AccountSuspendedException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(HttpStatus.CONFLICT.value(), "Conflict", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccountOwnershipException.class)
+    ResponseEntity<ApiError> handleAccountOwnership(AccountOwnershipException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(HttpStatus.FORBIDDEN.value(), "Forbidden", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(HttpStatus.FORBIDDEN.value(), "Forbidden", exception.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
