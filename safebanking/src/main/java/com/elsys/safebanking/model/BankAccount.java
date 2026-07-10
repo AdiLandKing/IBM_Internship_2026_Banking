@@ -3,15 +3,14 @@ package com.elsys.safebanking.model;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-
 import java.math.BigDecimal;
-
+import java.time.Instant;
 import lombok.Getter;
 
 @Getter
@@ -20,15 +19,11 @@ import lombok.Getter;
 public class BankAccount {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "account_id")
-    private Integer accountId;
-
-    @Column(name = "account_name", nullable = false)
-    private String accountName;
-
-    @Column(nullable = false, unique = true, length = 34)
+    @Column(nullable = false, unique = true, length = 18)
     private String iban;
+
+    @Column(nullable = false, length = 80)
+    private String name;
 
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal balance;
@@ -40,22 +35,40 @@ public class BankAccount {
     @JoinColumn(name = "user_id", nullable = false)
     private User owner;
 
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(nullable = false)
+    private Instant updatedAt;
+
     protected BankAccount() {
     }
 
-    public BankAccount(String accountName, String iban, BigDecimal balance, String currency, User owner) {
-        this.accountName = accountName;
+    public BankAccount(String iban, String name, String currency, User owner) {
         this.iban = iban;
-        this.balance = balance;
+        this.name = name;
+        this.balance = BigDecimal.ZERO;
         this.currency = currency;
         this.owner = owner;
+    }
+
+    @PrePersist
+    void onCreate() {
+        Instant now = Instant.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        this.updatedAt = Instant.now();
     }
 
     public void updateBalance(BigDecimal balance) {
         this.balance = balance;
     }
 
-    public void updateAccountName(String accountName) {
-        this.accountName = accountName;
+    public void updateName(String name) {
+        this.name = name;
     }
 }

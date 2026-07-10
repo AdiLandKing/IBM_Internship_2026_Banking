@@ -3,11 +3,16 @@ package com.elsys.safebanking.repository;
 
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
-
-public interface BankAccountRepository extends JpaRepository<BankAccount, Integer> {
+public interface BankAccountRepository extends JpaRepository<BankAccount, String> {
     long countByOwner(User owner);
-    List<BankAccount> findByOwnerId(Long ownerId);
+
+    List<BankAccount> findByOwnerIdOrderByCreatedAtDesc(Long ownerId);
+
+    Optional<BankAccount> findByIbanAndOwnerId(String iban, Long ownerId);
+
+    boolean existsByIban(String iban);
 }
