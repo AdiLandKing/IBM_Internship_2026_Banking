@@ -18,12 +18,6 @@ const recentTransactions = [
   { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
 ];
 
-const holdings = [
-  { name: 'Global Equity Mandate', category: 'Equities', value: '$2.51M', allocation: '52%', change: '+3.1%' },
-  { name: 'Municipal Income Ladder', category: 'Fixed Income', value: '$1.35M', allocation: '28%', change: '+0.8%' },
-  { name: 'Private Alternatives Fund', category: 'Alternatives', value: '$964K', allocation: '20%', change: '+1.6%' },
-];
-
 const adminMetrics = [
   { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
   { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
@@ -88,6 +82,15 @@ type AccountResponse = {
 type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
 
 const ACCOUNT_CURRENCIES: AccountCurrency[] = ['BGN', 'EUR', 'USD', 'GBP'];
+
+type PortfolioHolding = {
+  name: string;
+  category: string;
+  value: string;
+  allocation: string;
+  allocationWidth: string;
+  status: string;
+};
 
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
@@ -708,6 +711,75 @@ function formatAccountBalance(account: ClientAccount) {
     currency: account.currency,
     minimumFractionDigits: 2,
   }).format(account.balance);
+}
+
+function formatCurrencyAmount(value: number, currency: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+function getPortfolioTotalLabel(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return formatCurrencyAmount(0, 'EUR');
+
+  const currencies = new Set(accounts.map((account) => account.currency));
+  if (currencies.size > 1) {
+    return 'Multi-currency';
+  }
+
+  const [currency] = currencies;
+  const total = accounts.reduce((sum, account) => sum + account.balance, 0);
+  return formatCurrencyAmount(total, currency);
+}
+
+function getPortfolioRiskProfile(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return 'Not set';
+  if (accounts.length === 1) return 'Cash';
+  return new Set(accounts.map((account) => account.currency)).size > 1 ? 'Diversified cash' : 'Cash reserve';
+}
+
+function getPortfolioHoldings(accounts: ClientAccount[]): PortfolioHolding[] {
+  const positiveTotal = accounts.reduce((sum, account) => sum + Math.max(account.balance, 0), 0);
+
+  return accounts.map((account) => {
+    const allocation = positiveTotal > 0 ? Math.round((Math.max(account.balance, 0) / positiveTotal) * 100) : 0;
+    const allocationLabel = `${allocation}%`;
+
+    return {
+      name: account.name,
+      category: `${account.currency} Account`,
+      value: formatAccountBalance(account),
+      allocation: allocationLabel,
+      allocationWidth: allocationLabel,
+      status: account.balance > 0 ? 'Funded' : 'Awaiting funds',
+    };
+  });
+}
+
+function getPortfolioCurrencyAllocations(accounts: ClientAccount[]): PortfolioHolding[] {
+  const totalsByCurrency = accounts.reduce((totals, account) => {
+    totals.set(account.currency, (totals.get(account.currency) ?? 0) + account.balance);
+    return totals;
+  }, new Map<string, number>());
+  const positiveTotal = Array.from(totalsByCurrency.values()).reduce((sum, value) => sum + Math.max(value, 0), 0);
+
+  return Array.from(totalsByCurrency.entries())
+    .sort(([firstCurrency], [secondCurrency]) => firstCurrency.localeCompare(secondCurrency))
+    .map(([currency, value]) => {
+      const allocation = positiveTotal > 0 ? Math.round((Math.max(value, 0) / positiveTotal) * 100) : 0;
+      const allocationLabel = `${allocation}%`;
+
+      return {
+        name: currency,
+        category: currency,
+        value: formatCurrencyAmount(value, currency),
+        allocation: allocationLabel,
+        allocationWidth: allocationLabel,
+        status: `${currency} balance`,
+      };
+    });
 }
 
 function maskIban(iban: string) {
@@ -1738,7 +1810,43 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
   );
 }
 
-function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; showTransactions: () => void }) {
+function PortfolioPage({
+  authSession,
+  showHome,
+  showTransactions,
+}: {
+  authSession: AuthSession;
+  showHome: () => void;
+  showTransactions: () => void;
+}) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [portfolioError, setPortfolioError] = React.useState('');
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = React.useState(true);
+
+  const loadPortfolio = React.useCallback(async () => {
+    setIsLoadingPortfolio(true);
+    setPortfolioError('');
+    try {
+      setAccounts(await fetchAccounts(authSession));
+    } catch (error) {
+      setPortfolioError(error instanceof Error ? error.message : 'Unable to load portfolio.');
+    } finally {
+      setIsLoadingPortfolio(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    loadPortfolio();
+  }, [loadPortfolio]);
+
+  const holdings = getPortfolioHoldings(accounts);
+  const allocations = getPortfolioCurrencyAllocations(accounts);
+  const portfolioMetrics = [
+    ['Total Value', getPortfolioTotalLabel(accounts)],
+    ['Accounts', String(accounts.length)],
+    ['Risk Profile', getPortfolioRiskProfile(accounts)],
+  ];
+
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
       <div className="mx-auto max-w-[980px]">
@@ -1760,14 +1868,10 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Command Center
             </h1>
             <p className="mt-7 max-w-[560px] text-lg leading-8 text-[rgb(var(--text-muted))]">
-              Review your allocation, performance, and holdings across the mandates managed by SAFE Bank advisors.
+              Review your account allocation, balances, and transfer-ready holdings from live banking data.
             </p>
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              {[
-                ['Total Value', '$4,821,390.44'],
-                ['YTD Return', '+11.8%'],
-                ['Risk Profile', 'Balanced'],
-              ].map(([label, value]) => (
+              {portfolioMetrics.map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
                   <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
                   <p className="mt-3 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{value}</p>
@@ -1787,17 +1891,23 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               </div>
             </div>
             <div className="mt-6 space-y-5">
-              {holdings.map((holding) => (
-                <div key={holding.category}>
-                  <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                    <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
-                    <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+              {isLoadingPortfolio ? (
+                <p className="text-sm font-bold text-[rgb(var(--text-muted))]">Loading portfolio...</p>
+              ) : allocations.length > 0 ? (
+                allocations.map((holding) => (
+                  <div key={holding.category}>
+                    <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                      <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
+                      <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-[rgb(var(--line))]">
+                      <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocationWidth }} />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-[rgb(var(--line))]">
-                    <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocation }} />
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm font-bold text-[rgb(var(--text-muted))]">No allocation data yet.</p>
+              )}
             </div>
           </div>
         </div>
@@ -1816,19 +1926,46 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Transfer Funds
             </button>
           </div>
-          <div className="divide-y divide-[rgb(var(--line))]">
-            {holdings.map((holding) => (
-              <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
-                <div>
-                  <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+          {portfolioError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+              <p className="text-sm font-bold text-red-500" role="alert">{portfolioError}</p>
+              <button
+                type="button"
+                onClick={loadPortfolio}
+                className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoadingPortfolio ? (
+            <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+              Loading holdings...
+            </div>
+          ) : holdings.length > 0 ? (
+            <div className="divide-y divide-[rgb(var(--line))]">
+              {holdings.map((holding) => (
+                <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+                  <div>
+                    <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
+                    <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+                  </div>
+                  <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
+                  <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
+                  <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
                 </div>
-                <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
-                <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
-                <span className="text-sm font-extrabold text-emerald-500">{holding.change}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-8 text-center">
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+                <ChartPie size={20} strokeWidth={1.8} />
               </div>
-            ))}
-          </div>
+              <h3 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">No portfolio data yet</h3>
+              <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+                Create an account or fund an existing account to populate your portfolio.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -3076,7 +3213,7 @@ function App() {
         {page === 'accounts' && authSession && <AccountsPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'profile' && <UserPage authSession={authSession} showHome={showHome} showAccounts={showAccounts} />}
         {page === 'transactions' && <TransactionsPage showHome={showHome} />}
-        {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'portfolio' && <PortfolioPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
       </main>
       {page === 'home' && <Footer />}
