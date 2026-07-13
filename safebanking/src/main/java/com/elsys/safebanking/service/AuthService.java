@@ -8,6 +8,7 @@ import com.elsys.safebanking.exception.DuplicateEmailException;
 import com.elsys.safebanking.exception.InvalidCredentialsException;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.UserRepository;
+import com.elsys.safebanking.validation.EPinPolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,15 +38,21 @@ public class AuthService {
             throw new DuplicateEmailException("An account with this email already exists");
         }
 
-        User user = userRepository.save(new User(
+        EPinPolicy.Resolution ePinResolution = EPinPolicy.resolve(request.ePin());
+        User user = new User(
                 email,
                 passwordEncoder.encode(request.password()),
                 request.firstName().trim(),
                 request.lastName().trim(),
                 request.dateOfBirth()
-        ));
+        );
+        user.updateEPinHash(passwordEncoder.encode(ePinResolution.value()));
+        user = userRepository.saveAndFlush(user);
 
-        return createAuthResponse(user);
+        return createAuthResponse(
+                user,
+                ePinResolution.generated() ? ePinResolution.value() : null
+        );
     }
 
     @Transactional(readOnly = true)
@@ -58,16 +65,17 @@ public class AuthService {
             throw new InvalidCredentialsException("Invalid email or password");
         }
 
-        return createAuthResponse(user);
+        return createAuthResponse(user, null);
     }
 
-    private AuthResponse createAuthResponse(User user) {
+    private AuthResponse createAuthResponse(User user, String oneTimeEPin) {
         String token = jwtService.createToken(user.getEmail());
         return new AuthResponse(
                 "Bearer",
                 token,
                 jwtService.expirationSeconds(),
-                UserProfileResponse.from(user)
+                UserProfileResponse.from(user),
+                oneTimeEPin
         );
     }
 }

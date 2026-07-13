@@ -1,12 +1,18 @@
 package com.elsys.safebanking.model;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.time.Instant;
 
 @Getter
 @Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "transaction_logs")
 public class TransactionLog {
@@ -26,5 +32,4 @@ public class TransactionLog {
     @Column(name = "time_stamp", nullable = false)
     private Instant timeStamp;
 
-    protected TransactionLog() {}
 }

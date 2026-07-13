@@ -1,21 +1,15 @@
 package com.elsys.safebanking.dto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
-import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-/**
- * Pure unit test — validates Bean Validation constraints on {@link CreateBankAccountRequest}.
- * No Spring context needed; uses the standalone Hibernate Validator.
- */
 class CreateBankAccountRequestTest {
 
     private static Validator validator;
@@ -27,164 +21,45 @@ class CreateBankAccountRequestTest {
         }
     }
 
-    private Set<ConstraintViolation<CreateBankAccountRequest>> validate(CreateBankAccountRequest req) {
-        return validator.validate(req);
-    }
-
-    // -------------------------------------------------------------------------
-    // valid request
-    // -------------------------------------------------------------------------
-
     @Test
-    void validRequest_producesNoViolations() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("1000.00"), "EUR");
+    void validRequestProducesNoViolations() {
+        CreateBankAccountRequest request = new CreateBankAccountRequest("Main Account", "BGN");
 
-        assertThat(validate(req)).isEmpty();
+        assertThat(validate(request)).isEmpty();
     }
 
     @Test
-    void validRequest_zeroBalance_isAllowed() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Current", "GB29NWBK60161331926819", BigDecimal.ZERO, "USD");
+    void blankNameProducesViolation() {
+        CreateBankAccountRequest request = new CreateBankAccountRequest("   ", "EUR");
 
-        assertThat(validate(req)).isEmpty();
+        assertThat(validate(request))
+                .anyMatch(violation -> violation.getPropertyPath().toString().equals("name"));
     }
 
     @Test
-    void validRequest_negativeBalance_isAllowed() {
-        // balance is @NotNull only — negative values are intentionally permitted
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Overdrawn", "GB29NWBK60161331926819", new BigDecimal("-500.00"), "GBP");
+    void longNameProducesViolation() {
+        CreateBankAccountRequest request = new CreateBankAccountRequest("A".repeat(81), "EUR");
 
-        assertThat(validate(req)).isEmpty();
-    }
-
-    // -------------------------------------------------------------------------
-    // accountName violations
-    // -------------------------------------------------------------------------
-
-    @Test
-    void nullAccountName_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest(null, "GB29NWBK60161331926819", new BigDecimal("100.00"), "EUR");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("accountName"));
+        assertThat(validate(request))
+                .anyMatch(violation -> violation.getPropertyPath().toString().equals("name"));
     }
 
     @Test
-    void blankAccountName_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("   ", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EUR");
+    void unsupportedCurrencyProducesViolation() {
+        CreateBankAccountRequest request = new CreateBankAccountRequest("Main Account", "JPY");
 
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("accountName"));
+        assertThat(validate(request))
+                .anyMatch(violation -> violation.getPropertyPath().toString().equals("currency"));
     }
 
     @Test
-    void emptyAccountName_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EUR");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("accountName"));
+    void supportedCurrenciesProduceNoViolations() {
+        for (String currency : new String[]{"BGN", "EUR", "USD", "GBP"}) {
+            assertThat(validate(new CreateBankAccountRequest("Main Account", currency))).isEmpty();
+        }
     }
 
-    // -------------------------------------------------------------------------
-    // iban violations
-    // -------------------------------------------------------------------------
-
-    @Test
-    void nullIban_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", null, new BigDecimal("100.00"), "EUR");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("iban"));
-    }
-
-    @Test
-    void blankIban_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "   ", new BigDecimal("100.00"), "EUR");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("iban"));
-    }
-
-    // -------------------------------------------------------------------------
-    // balance violations
-    // -------------------------------------------------------------------------
-
-    @Test
-    void nullBalance_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", null, "EUR");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("balance"));
-    }
-
-    // -------------------------------------------------------------------------
-    // currency violations
-    // -------------------------------------------------------------------------
-
-    @Test
-    void nullCurrency_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), null);
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("currency"));
-    }
-
-    @Test
-    void blankCurrency_producesViolation() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "   ");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("currency"));
-    }
-
-    @Test
-    void tooShortCurrency_producesViolation() {
-        // "EU" is 2 chars — must be exactly 3
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EU");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("currency"));
-    }
-
-    @Test
-    void tooLongCurrency_producesViolation() {
-        // "EURO" is 4 chars — must be exactly 3
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "EURO");
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("currency"));
-    }
-
-    @Test
-    void exactlyThreeCharCurrency_isValid() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest("Savings", "GB29NWBK60161331926819", new BigDecimal("100.00"), "BGN");
-
-        assertThat(validate(req)).isEmpty();
-    }
-
-    // -------------------------------------------------------------------------
-    // multiple violations at once
-    // -------------------------------------------------------------------------
-
-    @Test
-    void allNullFields_producesViolationForEachField() {
-        CreateBankAccountRequest req = new CreateBankAccountRequest(null, null, null, null);
-
-        Set<ConstraintViolation<CreateBankAccountRequest>> violations = validate(req);
-
-        assertThat(violations).hasSizeGreaterThanOrEqualTo(4);
-        assertThat(violations)
-                .extracting(v -> v.getPropertyPath().toString())
-                .contains("accountName", "iban", "balance", "currency");
+    private Set<ConstraintViolation<CreateBankAccountRequest>> validate(CreateBankAccountRequest request) {
+        return validator.validate(request);
     }
 }
