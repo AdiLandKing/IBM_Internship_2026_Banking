@@ -70,7 +70,7 @@ public class PaymentServiceImpl implements PaymentService {
      */
     @Override
     @Transactional
-    public void handleWebhook(String payload, String sigHeader) throws SignatureVerificationException {
+    public void handleWebhook(byte[] payload, String sigHeader) throws SignatureVerificationException {
         // 1. Verify signature — throws SignatureVerificationException on mismatch.
         Event event = webhookVerifier.constructEvent(payload, sigHeader);
 

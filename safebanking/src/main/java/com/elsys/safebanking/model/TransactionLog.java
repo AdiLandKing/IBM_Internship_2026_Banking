@@ -10,13 +10,20 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
 @Table(name = "transaction_logs")
 @Getter
 @Setter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+@Builder
 public class TransactionLog {
 
     @Id
@@ -34,48 +41,4 @@ public class TransactionLog {
     @Column(name = "time_stamp", nullable = false)
     private Instant timeStamp;
 
-    protected TransactionLog() {
-    }
-
-    private TransactionLog(Builder builder) {
-        this.logId = builder.logId;
-        this.transaction = builder.transaction;
-        this.logEntryText = builder.logEntryText;
-        this.timeStamp = builder.timeStamp;
-    }
-
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public static class Builder {
-        private Long logId;
-        private BankingTransaction transaction;
-        private String logEntryText;
-        private Instant timeStamp;
-
-        public Builder logId(Long logId) {
-            this.logId = logId;
-            return this;
-        }
-
-        public Builder transaction(BankingTransaction transaction) {
-            this.transaction = transaction;
-            return this;
-        }
-
-        public Builder logEntryText(String logEntryText) {
-            this.logEntryText = logEntryText;
-            return this;
-        }
-
-        public Builder timeStamp(Instant timeStamp) {
-            this.timeStamp = timeStamp;
-            return this;
-        }
-
-        public TransactionLog build() {
-            return new TransactionLog(this);
-        }
-    }
 }

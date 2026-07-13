@@ -102,10 +102,10 @@ class PaymentControllerTest {
 
     @Test
     void webhook_withValidSignature_returnsOk() throws Exception {
-        doNothing().when(paymentService).handleWebhook(any(), any());
+        doNothing().when(paymentService).handleWebhook(any(byte[].class), any());
 
         mockMvc.perform(post("/api/payments/webhook")
-                        .contentType(MediaType.TEXT_PLAIN)
+                        .contentType(MediaType.APPLICATION_JSON)
                         .header("Stripe-Signature", "t=123,v1=abc")
                         .content("{}"))
                 .andExpect(status().isOk());
@@ -114,10 +114,10 @@ class PaymentControllerTest {
     @Test
     void webhook_withInvalidSignature_returnsBadRequest() throws Exception {
         doThrow(new SignatureVerificationException("bad sig", "sig-header"))
-                .when(paymentService).handleWebhook(any(), any());
+                .when(paymentService).handleWebhook(any(byte[].class), any());
 
         mockMvc.perform(post("/api/payments/webhook")
-                        .contentType(MediaType.TEXT_PLAIN)
+                        .contentType(MediaType.APPLICATION_JSON)
                         .header("Stripe-Signature", "t=123,v1=tampered")
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -128,7 +128,7 @@ class PaymentControllerTest {
     void webhook_missingStripeSignatureHeader_returnsBadRequest() throws Exception {
         // No Stripe-Signature header → Spring returns 400 (required header missing)
         mockMvc.perform(post("/api/payments/webhook")
-                        .contentType(MediaType.TEXT_PLAIN)
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest());
     }

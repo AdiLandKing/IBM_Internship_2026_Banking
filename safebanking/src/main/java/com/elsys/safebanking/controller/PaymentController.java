@@ -37,16 +37,16 @@ public class PaymentController {
 
     /**
      * Stripe webhook endpoint. Stripe posts the raw JSON body with a
-     * {@code Stripe-Signature} header. We consume it as plain text so Spring
-     * does not re-parse the bytes — the SDK needs the exact original payload
-     * to verify the HMAC signature.
+     * {@code Stripe-Signature} header. We consume it as raw bytes so Spring
+     * preserves the original payload without charset re-encoding before the
+     * signature verification step.
      *
      * <p>This endpoint is {@code permitAll()} in SecurityConfig; security is
      * provided entirely by signature verification inside the service layer.
      */
-    @PostMapping(value = "/webhook", consumes = MediaType.TEXT_PLAIN_VALUE)
+    @PostMapping(value = "/webhook", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> webhook(
-            @RequestBody String payload,
+            @RequestBody byte[] payload,
             @RequestHeader("Stripe-Signature") String sigHeader
     ) throws SignatureVerificationException {
         paymentService.handleWebhook(payload, sigHeader);

@@ -13,13 +13,20 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
 @Table(name = "transactions")
 @Getter
 @Setter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+@Builder
 public class BankingTransaction {
 
     @Id
@@ -67,102 +74,4 @@ public class BankingTransaction {
     @Column(nullable = false)
     private TransactionStatus status;
 
-    protected BankingTransaction() {
-    }
-
-    private BankingTransaction(Builder builder) {
-        this.tranId = builder.tranId;
-        this.sourceAccount = builder.sourceAccount;
-        this.destinationAccount = builder.destinationAccount;
-        this.amount = builder.amount;
-        this.creditedAmount = builder.creditedAmount;
-        this.sourceCurrency = builder.sourceCurrency;
-        this.destinationCurrency = builder.destinationCurrency;
-        this.reason = builder.reason;
-        this.timeStamp = builder.timeStamp;
-        this.exchangeRateUsed = builder.exchangeRateUsed;
-        this.status = builder.status;
-    }
-
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public static class Builder {
-        private Long tranId;
-        private BankAccount sourceAccount;
-        private BankAccount destinationAccount;
-        private BigDecimal amount;
-        private BigDecimal creditedAmount;
-        private String sourceCurrency;
-        private String destinationCurrency;
-        private String reason;
-        private Instant timeStamp;
-        private BigDecimal exchangeRateUsed;
-        private TransactionStatus status;
-
-        public Builder tranId(Long tranId) {
-            this.tranId = tranId;
-            return this;
-        }
-
-        public Builder sourceAccount(BankAccount sourceAccount) {
-            this.sourceAccount = sourceAccount;
-            return this;
-        }
-
-        public Builder destinationAccount(BankAccount destinationAccount) {
-            this.destinationAccount = destinationAccount;
-            return this;
-        }
-
-        public Builder amount(BigDecimal amount) {
-            this.amount = amount;
-            return this;
-        }
-
-        public Builder debitedAmount(BigDecimal amount) {
-            this.amount = amount;
-            return this;
-        }
-
-        public Builder creditedAmount(BigDecimal creditedAmount) {
-            this.creditedAmount = creditedAmount;
-            return this;
-        }
-
-        public Builder sourceCurrency(String sourceCurrency) {
-            this.sourceCurrency = sourceCurrency;
-            return this;
-        }
-
-        public Builder destinationCurrency(String destinationCurrency) {
-            this.destinationCurrency = destinationCurrency;
-            return this;
-        }
-
-        public Builder reason(String reason) {
-            this.reason = reason;
-            return this;
-        }
-
-        public Builder timeStamp(Instant timeStamp) {
-            this.timeStamp = timeStamp;
-            return this;
-        }
-
-        public Builder exchangeRateUsed(BigDecimal exchangeRateUsed) {
-            this.exchangeRateUsed = exchangeRateUsed;
-            return this;
-        }
-
-        public Builder status(TransactionStatus status) {
-            this.status = status;
-            return this;
-        }
-
-        public BankingTransaction build() {
-            return new BankingTransaction(this);
-        }
-    }
 }

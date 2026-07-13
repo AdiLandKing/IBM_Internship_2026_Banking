@@ -143,7 +143,6 @@ public class TransferServiceImpl implements TransferService {
         .sourceAccount(source)
         .destinationAccount(dest)
         .amount(debitedAmount)
-        .debitedAmount(debitedAmount)
         .creditedAmount(creditedAmount)
         .sourceCurrency(srcCurrency)
         .destinationCurrency(dstCurrency)

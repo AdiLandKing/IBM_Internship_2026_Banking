@@ -100,6 +100,28 @@ public class User {
         this.updatedAt = Instant.now();
     }
 
+    public void addBankAccount(BankAccount bankAccount) {
+        if (bankAccount == null) {
+            return;
+        }
+        if (!bankAccounts.contains(bankAccount)) {
+            bankAccounts.add(bankAccount);
+        }
+        if (bankAccount.getOwner() != this) {
+            bankAccount.setOwner(this);
+        }
+    }
+
+    public void removeBankAccount(BankAccount bankAccount) {
+        if (bankAccount == null) {
+            return;
+        }
+        bankAccounts.remove(bankAccount);
+        if (this.equals(bankAccount.getOwner())) {
+            bankAccount.setOwner(null);
+        }
+    }
+
     public void updateProfile(String firstName, String lastName) {
         this.firstName = firstName;
         this.lastName = lastName;

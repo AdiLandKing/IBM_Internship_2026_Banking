@@ -89,7 +89,7 @@ class PaymentServiceImplTest {
         SignatureVerificationException ex = new SignatureVerificationException("bad sig", "sig-header");
         when(webhookVerifier.constructEvent(any(), any())).thenThrow(ex);
 
-        assertThatThrownBy(() -> paymentService.handleWebhook("payload", "sig"))
+        assertThatThrownBy(() -> paymentService.handleWebhook("payload".getBytes(), "sig"))
                 .isSameAs(ex);
     }
 
@@ -103,7 +103,7 @@ class PaymentServiceImplTest {
         Event event = eventOfType("payment_intent.created");
         when(webhookVerifier.constructEvent(any(), any())).thenReturn(event);
 
-        paymentService.handleWebhook("payload", "sig");
+        paymentService.handleWebhook("payload".getBytes(), "sig");
 
         verifyNoInteractions(bankAccountRepository, stripeDepositRepository);
     }
@@ -117,7 +117,7 @@ class PaymentServiceImplTest {
         Event event = succeededEventWithEmptyDeserializer();
         when(webhookVerifier.constructEvent(any(), any())).thenReturn(event);
 
-        paymentService.handleWebhook("payload", "sig");
+        paymentService.handleWebhook("payload".getBytes(), "sig");
 
         verifyNoInteractions(bankAccountRepository, stripeDepositRepository);
     }
@@ -132,7 +132,7 @@ class PaymentServiceImplTest {
         when(webhookVerifier.constructEvent(any(), any())).thenReturn(event);
         when(stripeDepositRepository.existsByStripePaymentIntentId(INTENT_ID)).thenReturn(true);
 
-        paymentService.handleWebhook("payload", "sig");
+        paymentService.handleWebhook("payload".getBytes(), "sig");
 
         verify(stripeDepositRepository, never()).save(any());
         verify(bankAccountRepository, never()).findByIban(any());
@@ -149,7 +149,7 @@ class PaymentServiceImplTest {
         when(stripeDepositRepository.existsByStripePaymentIntentId(INTENT_ID)).thenReturn(false);
         when(bankAccountRepository.findByIban(IBAN)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> paymentService.handleWebhook("payload", "sig"))
+        assertThatThrownBy(() -> paymentService.handleWebhook("payload".getBytes(), "sig"))
                 .isInstanceOf(NoSuchElementException.class)
                 .hasMessageContaining(IBAN);
     }
@@ -166,7 +166,7 @@ class PaymentServiceImplTest {
         when(bankAccountRepository.findByIban(IBAN)).thenReturn(Optional.of(account));
         when(stripeDepositRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        paymentService.handleWebhook("payload", "sig");
+        paymentService.handleWebhook("payload".getBytes(), "sig");
 
         // 500.00 + 10.00 (1000 cents) = 510.00
         assertThat(account.getBalance()).isEqualByComparingTo(new BigDecimal("510.00"));
@@ -183,7 +183,7 @@ class PaymentServiceImplTest {
         when(bankAccountRepository.findByIban(IBAN)).thenReturn(Optional.of(account));
         when(stripeDepositRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        paymentService.handleWebhook("payload", "sig");
+        paymentService.handleWebhook("payload".getBytes(), "sig");
 
         assertThat(account.getBalance()).isEqualByComparingTo(new BigDecimal("509.99"));
     }

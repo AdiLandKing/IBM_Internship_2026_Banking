@@ -31,5 +31,5 @@ public interface PaymentService {
      * @param sigHeader    value of the {@code Stripe-Signature} HTTP header
      * @throws SignatureVerificationException if the signature is invalid or the payload was tampered with
      */
-    void handleWebhook(String payload, String sigHeader) throws SignatureVerificationException;
+    void handleWebhook(byte[] payload, String sigHeader) throws SignatureVerificationException;
 }

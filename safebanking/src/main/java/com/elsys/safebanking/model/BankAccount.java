@@ -13,6 +13,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -48,6 +49,7 @@ public class BankAccount {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @Setter(AccessLevel.NONE)
     private User owner;
 
     protected BankAccount() {
@@ -63,6 +65,14 @@ public class BankAccount {
         this.balance = balance == null ? BigDecimal.ZERO : balance;
         this.currency = currency;
         this.status = AccountStatus.ACTIVE;
+        this.owner = owner;
+    }
+
+    public void setOwner(User owner) {
+        if (this.owner == owner) {
+            return;
+        }
+
         this.owner = owner;
     }
 

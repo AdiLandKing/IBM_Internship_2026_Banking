@@ -6,6 +6,8 @@ import com.stripe.net.Webhook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+
 /**
  * Thin wrapper around the static {@link Webhook#constructEvent} call.
  * Extracting it into a Spring bean makes the webhook verification step
@@ -25,7 +27,8 @@ public class StripeWebhookVerifier {
      *
      * @throws SignatureVerificationException if the signature does not match
      */
-    public Event constructEvent(String payload, String sigHeader) throws SignatureVerificationException {
-        return Webhook.constructEvent(payload, sigHeader, webhookSecret);
+    public Event constructEvent(byte[] payload, String sigHeader) throws SignatureVerificationException {
+        String decodedPayload = new String(payload, StandardCharsets.UTF_8);
+        return Webhook.constructEvent(decodedPayload, sigHeader, webhookSecret);
     }
 }
