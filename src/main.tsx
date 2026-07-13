@@ -1810,15 +1810,17 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
   );
 }
 
+type PortfolioPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+  showTransactions: () => void;
+}>;
+
 function PortfolioPage({
   authSession,
   showHome,
   showTransactions,
-}: {
-  authSession: AuthSession;
-  showHome: () => void;
-  showTransactions: () => void;
-}) {
+}: PortfolioPageProps) {
   const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
   const [portfolioError, setPortfolioError] = React.useState('');
   const [isLoadingPortfolio, setIsLoadingPortfolio] = React.useState(true);
@@ -1846,6 +1848,74 @@ function PortfolioPage({
     ['Accounts', String(accounts.length)],
     ['Risk Profile', getPortfolioRiskProfile(accounts)],
   ];
+  let allocationContent: React.ReactNode;
+  if (isLoadingPortfolio) {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">Loading portfolio...</p>;
+  } else if (allocations.length > 0) {
+    allocationContent = allocations.map((holding) => (
+      <div key={holding.category}>
+        <div className="mb-2 flex items-center justify-between text-sm font-bold">
+          <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
+          <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+        </div>
+        <div className="h-2 rounded-full bg-[rgb(var(--line))]">
+          <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocationWidth }} />
+        </div>
+      </div>
+    ));
+  } else {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">No allocation data yet.</p>;
+  }
+
+  let holdingsContent: React.ReactNode;
+  if (portfolioError) {
+    holdingsContent = (
+      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+        <p className="text-sm font-bold text-red-500" role="alert">{portfolioError}</p>
+        <button
+          type="button"
+          onClick={loadPortfolio}
+          className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  } else if (isLoadingPortfolio) {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading holdings...
+      </div>
+    );
+  } else if (holdings.length > 0) {
+    holdingsContent = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {holdings.map((holding) => (
+          <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+            <div>
+              <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
+              <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+            </div>
+            <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
+            <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
+            <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-8 text-center">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <ChartPie size={20} strokeWidth={1.8} />
+        </div>
+        <h3 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">No portfolio data yet</h3>
+        <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+          Create an account or fund an existing account to populate your portfolio.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
@@ -1891,23 +1961,7 @@ function PortfolioPage({
               </div>
             </div>
             <div className="mt-6 space-y-5">
-              {isLoadingPortfolio ? (
-                <p className="text-sm font-bold text-[rgb(var(--text-muted))]">Loading portfolio...</p>
-              ) : allocations.length > 0 ? (
-                allocations.map((holding) => (
-                  <div key={holding.category}>
-                    <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                      <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
-                      <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-[rgb(var(--line))]">
-                      <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocationWidth }} />
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm font-bold text-[rgb(var(--text-muted))]">No allocation data yet.</p>
-              )}
+              {allocationContent}
             </div>
           </div>
         </div>
@@ -1926,46 +1980,7 @@ function PortfolioPage({
               Transfer Funds
             </button>
           </div>
-          {portfolioError ? (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
-              <p className="text-sm font-bold text-red-500" role="alert">{portfolioError}</p>
-              <button
-                type="button"
-                onClick={loadPortfolio}
-                className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-              >
-                Retry
-              </button>
-            </div>
-          ) : isLoadingPortfolio ? (
-            <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-5 text-sm font-bold text-[rgb(var(--text-muted))]">
-              Loading holdings...
-            </div>
-          ) : holdings.length > 0 ? (
-            <div className="divide-y divide-[rgb(var(--line))]">
-              {holdings.map((holding) => (
-                <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
-                  <div>
-                    <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
-                    <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
-                  </div>
-                  <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
-                  <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
-                  <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-8 text-center">
-              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
-                <ChartPie size={20} strokeWidth={1.8} />
-              </div>
-              <h3 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">No portfolio data yet</h3>
-              <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
-                Create an account or fund an existing account to populate your portfolio.
-              </p>
-            </div>
-          )}
+          {holdingsContent}
         </div>
       </div>
     </section>
