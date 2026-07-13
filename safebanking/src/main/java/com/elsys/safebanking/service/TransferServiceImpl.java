@@ -140,17 +140,18 @@ public class TransferServiceImpl implements TransferService {
             String srcCurrency, String dstCurrency, BigDecimal fxRate,
             String reason, TransactionStatus status) {
         BankingTransaction tx = BankingTransaction.builder()
-                .sourceAccount(source)
-                .destinationAccount(dest)
-                .amount(debitedAmount)
-                .creditedAmount(creditedAmount)
-                .sourceCurrency(srcCurrency)
-                .destinationCurrency(dstCurrency)
-                .reason(reason)
-                .timeStamp(Instant.now())
-                .exchangeRateUsed(fxRate)
-                .status(status)
-                .build();
+        .sourceAccount(source)
+        .destinationAccount(dest)
+        .amount(debitedAmount)
+        .debitedAmount(debitedAmount)
+        .creditedAmount(creditedAmount)
+        .sourceCurrency(srcCurrency)
+        .destinationCurrency(dstCurrency)
+        .reason(reason)
+        .timeStamp(Instant.now())
+        .exchangeRateUsed(fxRate)
+        .status(status)
+        .build();
         return transactionRepository.save(tx);
     }
 
