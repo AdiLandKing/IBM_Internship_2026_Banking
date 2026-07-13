@@ -23,11 +23,11 @@ public class BankingTransaction {
     private Long tranId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "source_account_iban", nullable = false)
+    @JoinColumn(name = "source_account_iban", referencedColumnName = "iban", nullable = false)
     private BankAccount sourceAccount;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "destination_account_iban", nullable = false)
+    @JoinColumn(name = "destination_account_iban", referencedColumnName = "iban", nullable = false)
     private BankAccount destinationAccount;
 
     @Column(nullable = false, precision = 18, scale = 2)
@@ -46,4 +46,6 @@ public class BankingTransaction {
     @Column(nullable = false, name = "exchange_rate_used", precision = 18, scale = 6)
     private BigDecimal exchangeRateUsed;
 
+}
+    protected BankingTransaction() {}
 }

@@ -18,12 +18,6 @@ const recentTransactions = [
   { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
 ];
 
-const holdings = [
-  { name: 'Global Equity Mandate', category: 'Equities', value: '$2.51M', allocation: '52%', change: '+3.1%' },
-  { name: 'Municipal Income Ladder', category: 'Fixed Income', value: '$1.35M', allocation: '28%', change: '+0.8%' },
-  { name: 'Private Alternatives Fund', category: 'Alternatives', value: '$964K', allocation: '20%', change: '+1.6%' },
-];
-
 const adminMetrics = [
   { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
   { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
@@ -78,38 +72,25 @@ type ClientAccount = {
   branch: string;
 };
 
-const clientAccounts: ClientAccount[] = [
-  {
-    id: 'private-checking',
-    name: 'Private Checking',
-    type: 'Everyday account',
-    iban: 'BG80SAFE18470000394401',
-    balance: 128420.86,
-    currency: 'USD',
-    opened: 'March 14, 2021',
-    branch: 'Sofia Private Office',
-  },
-  {
-    id: 'wealth-reserve',
-    name: 'Wealth Reserve',
-    type: 'Savings account',
-    iban: 'BG31SAFE18470000184702',
-    balance: 740000,
-    currency: 'USD',
-    opened: 'September 02, 2018',
-    branch: 'Sofia Private Office',
-  },
-  {
-    id: 'travel-fx',
-    name: 'Travel & FX',
-    type: 'Foreign currency account',
-    iban: 'BG59SAFE18470000621803',
-    balance: 42890.4,
-    currency: 'EUR',
-    opened: 'January 18, 2024',
-    branch: 'International Banking',
-  },
-];
+type AccountResponse = {
+  iban: string;
+  name: string;
+  balance: number | string;
+  currency: string;
+};
+
+type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
+
+const ACCOUNT_CURRENCIES: AccountCurrency[] = ['BGN', 'EUR', 'USD', 'GBP'];
+
+type PortfolioHolding = {
+  name: string;
+  category: string;
+  value: string;
+  allocation: string;
+  allocationWidth: string;
+  status: string;
+};
 
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
@@ -396,6 +377,74 @@ async function saveEPin(
   }
 }
 
+function accountResponseToClientAccount(account: AccountResponse): ClientAccount {
+  return {
+    id: account.iban,
+    name: account.name,
+    type: `${account.currency} account`,
+    iban: account.iban,
+    balance: Number(account.balance),
+    currency: account.currency,
+    opened: 'Not available',
+    branch: 'Sofia Private Office',
+  };
+}
+
+async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load accounts.'));
+  }
+
+  const accounts = await response.json() as AccountResponse[];
+  return accounts.map(accountResponseToClientAccount);
+}
+
+async function createBankAccount(
+  authSession: AuthSession,
+  name: string,
+  currency: AccountCurrency,
+): Promise<ClientAccount> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, currency }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to create account.'));
+  }
+
+  return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+async function updateBankAccountName(
+  authSession: AuthSession,
+  iban: string,
+  name: string,
+): Promise<ClientAccount> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts/${encodeURIComponent(iban)}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to update account name.'));
+  }
+
+  return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
 
 async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile> {
   const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
@@ -664,89 +713,213 @@ function formatAccountBalance(account: ClientAccount) {
   }).format(account.balance);
 }
 
+function formatCurrencyAmount(value: number, currency: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+function getPortfolioTotalLabel(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return formatCurrencyAmount(0, 'EUR');
+
+  const currencies = new Set(accounts.map((account) => account.currency));
+  if (currencies.size > 1) {
+    return 'Multi-currency';
+  }
+
+  const [currency] = currencies;
+  const total = accounts.reduce((sum, account) => sum + account.balance, 0);
+  return formatCurrencyAmount(total, currency);
+}
+
+function getPortfolioRiskProfile(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return 'Not set';
+  if (accounts.length === 1) return 'Cash';
+  return new Set(accounts.map((account) => account.currency)).size > 1 ? 'Diversified cash' : 'Cash reserve';
+}
+
+function getPortfolioHoldings(accounts: ClientAccount[]): PortfolioHolding[] {
+  const positiveTotal = accounts.reduce((sum, account) => sum + Math.max(account.balance, 0), 0);
+
+  return accounts.map((account) => {
+    const allocation = positiveTotal > 0 ? Math.round((Math.max(account.balance, 0) / positiveTotal) * 100) : 0;
+    const allocationLabel = `${allocation}%`;
+
+    return {
+      name: account.name,
+      category: `${account.currency} Account`,
+      value: formatAccountBalance(account),
+      allocation: allocationLabel,
+      allocationWidth: allocationLabel,
+      status: account.balance > 0 ? 'Funded' : 'Awaiting funds',
+    };
+  });
+}
+
+function getPortfolioCurrencyAllocations(accounts: ClientAccount[]): PortfolioHolding[] {
+  const totalsByCurrency = accounts.reduce((totals, account) => {
+    totals.set(account.currency, (totals.get(account.currency) ?? 0) + account.balance);
+    return totals;
+  }, new Map<string, number>());
+  const positiveTotal = Array.from(totalsByCurrency.values()).reduce((sum, value) => sum + Math.max(value, 0), 0);
+
+  return Array.from(totalsByCurrency.entries())
+    .sort(([firstCurrency], [secondCurrency]) => firstCurrency.localeCompare(secondCurrency))
+    .map(([currency, value]) => {
+      const allocation = positiveTotal > 0 ? Math.round((Math.max(value, 0) / positiveTotal) * 100) : 0;
+      const allocationLabel = `${allocation}%`;
+
+      return {
+        name: currency,
+        category: currency,
+        value: formatCurrencyAmount(value, currency),
+        allocation: allocationLabel,
+        allocationWidth: allocationLabel,
+        status: `${currency} balance`,
+      };
+    });
+}
+
 function maskIban(iban: string) {
-  if (iban === 'Pending assignment') return iban;
   return `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}`;
 }
 
 function AccountsPage({
   showHome,
   showTransactions,
+  authSession,
 }: {
   showHome: () => void;
   showTransactions: () => void;
+  authSession: AuthSession;
 }) {
-  const [accounts, setAccounts] = React.useState<ClientAccount[]>(clientAccounts);
-  const [selectedAccountId, setSelectedAccountId] = React.useState(clientAccounts[0].id);
-  const [accountNames, setAccountNames] = React.useState<Record<string, string>>(
-    () => Object.fromEntries(clientAccounts.map((account) => [account.id, account.name])),
-  );
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = React.useState<string | null>(null);
+  const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(true);
+  const [accountsError, setAccountsError] = React.useState('');
+  const [accountActionError, setAccountActionError] = React.useState('');
+  const [accountSuccess, setAccountSuccess] = React.useState('');
   const [isCreateAccountOpen, setIsCreateAccountOpen] = React.useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = React.useState(false);
+  const [createAccountError, setCreateAccountError] = React.useState('');
   const [editingName, setEditingName] = React.useState(false);
   const [draftName, setDraftName] = React.useState('');
+  const [isSavingName, setIsSavingName] = React.useState(false);
   const [isIbanVisible, setIsIbanVisible] = React.useState(false);
   const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
   const [lockedAccountIds, setLockedAccountIds] = React.useState<Set<string>>(() => new Set());
 
-  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
-  const selectedName = accountNames[selectedAccount.id];
-  const isSelectedAccountLocked = lockedAccountIds.has(selectedAccount.id);
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
+  const selectedName = selectedAccount?.name ?? '';
+  const isSelectedAccountLocked = selectedAccount ? lockedAccountIds.has(selectedAccount.id) : false;
   const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
+
+  const loadAccounts = React.useCallback(async (preferredAccountId?: string) => {
+    setIsLoadingAccounts(true);
+    setAccountsError('');
+    try {
+      const loadedAccounts = await fetchAccounts(authSession);
+      setAccounts(loadedAccounts);
+      setSelectedAccountId((currentId) => {
+        if (preferredAccountId && loadedAccounts.some((account) => account.id === preferredAccountId)) {
+          return preferredAccountId;
+        }
+        if (currentId && loadedAccounts.some((account) => account.id === currentId)) {
+          return currentId;
+        }
+        return loadedAccounts[0]?.id ?? null;
+      });
+    } catch (loadError) {
+      setAccountsError(loadError instanceof Error ? loadError.message : 'Unable to load accounts.');
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    void loadAccounts();
+  }, [loadAccounts]);
 
   function selectAccount(account: ClientAccount) {
     setSelectedAccountId(account.id);
     setEditingName(false);
     setIsIbanVisible(false);
+    setAccountActionError('');
   }
 
   function startRenaming() {
+    if (!selectedAccount) return;
     setDraftName(selectedName);
     setEditingName(true);
+    setAccountActionError('');
   }
 
-  function saveAccountName(event: React.FormEvent<HTMLFormElement>) {
+  async function saveAccountName(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedAccount) return;
+
     const nextName = draftName.trim();
     if (!nextName) return;
-    setAccountNames((current) => ({ ...current, [selectedAccount.id]: nextName }));
-    setEditingName(false);
+
+    setIsSavingName(true);
+    setAccountActionError('');
+    setAccountSuccess('');
+    try {
+      const updatedAccount = await updateBankAccountName(authSession, selectedAccount.iban, nextName);
+      setAccounts((current) => current.map((account) => (
+        account.id === updatedAccount.id ? updatedAccount : account
+      )));
+      setEditingName(false);
+      setAccountSuccess('Account name updated.');
+    } catch (renameError) {
+      setAccountActionError(renameError instanceof Error ? renameError.message : 'Unable to update account name.');
+    } finally {
+      setIsSavingName(false);
+    }
   }
 
   async function copyIban() {
+    if (!selectedAccount) return;
     await navigator.clipboard.writeText(selectedAccount.iban);
     setCopiedAccountId(selectedAccount.id);
     window.setTimeout(() => setCopiedAccountId(null), 1800);
   }
 
-  function createAccount(event: React.FormEvent<HTMLFormElement>) {
+  async function createAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const accountName = getFormString(formData, 'accountName', true);
-    const accountType = getFormString(formData, 'accountType');
-    const currency = getFormString(formData, 'currency');
-    if (!accountName || !accountType || !currency) return;
+    const currency = getFormString(formData, 'currency') as AccountCurrency;
+    if (!accountName) {
+      setCreateAccountError('Account name is required.');
+      return;
+    }
+    if (!ACCOUNT_CURRENCIES.includes(currency)) {
+      setCreateAccountError('Choose a supported currency.');
+      return;
+    }
 
-    const accountId = `new-account-${Date.now()}`;
-    const newAccount: ClientAccount = {
-      id: accountId,
-      name: accountName,
-      type: accountType,
-      iban: 'Pending assignment',
-      balance: 0,
-      currency,
-      opened: new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date()),
-      branch: 'Sofia Private Office',
-    };
-
-    setAccounts((current) => [...current, newAccount]);
-    setAccountNames((current) => ({ ...current, [accountId]: accountName }));
-    setSelectedAccountId(accountId);
-    setIsCreateAccountOpen(false);
-    setEditingName(false);
-    setIsIbanVisible(false);
+    setIsCreatingAccount(true);
+    setCreateAccountError('');
+    setAccountSuccess('');
+    try {
+      const createdAccount = await createBankAccount(authSession, accountName, currency);
+      await loadAccounts(createdAccount.id);
+      setIsCreateAccountOpen(false);
+      setEditingName(false);
+      setIsIbanVisible(false);
+      setAccountSuccess('Account created successfully.');
+    } catch (createError) {
+      setCreateAccountError(createError instanceof Error ? createError.message : 'Unable to create account.');
+    } finally {
+      setIsCreatingAccount(false);
+    }
   }
 
   function toggleSelectedAccountLock() {
+    if (!selectedAccount) return;
     setLockedAccountIds((current) => {
       const next = new Set(current);
       if (next.has(selectedAccount.id)) {
@@ -800,6 +973,9 @@ function AccountsPage({
           </div>
         </div>
 
+        {accountSuccess && <output className="mt-5 block text-sm font-bold text-emerald-500">{accountSuccess}</output>}
+        {accountActionError && <p className="mt-5 text-sm font-bold text-red-500" role="alert">{accountActionError}</p>}
+
         <div className="grid gap-px border-b border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
           {[
             ['Accounts', String(accounts.length)],
@@ -812,168 +988,199 @@ function AccountsPage({
           ))}
         </div>
 
-        <div className="mt-10 grid gap-8 lg:grid-cols-[360px_1fr]">
-          <div className="overflow-hidden rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))]">
-            <div className="border-b border-[rgb(var(--line))] px-5 py-4">
-              <p className="text-[0.64rem] font-extrabold uppercase tracking-[0.28em] text-[rgb(var(--text-muted))]">Account Directory</p>
-            </div>
-            <div className="divide-y divide-[rgb(var(--line))]">
-              {accounts.map((account) => {
-                const isSelected = account.id === selectedAccount.id;
-                const isLocked = lockedAccountIds.has(account.id);
-                const AccountIcon = isLocked ? LockKeyhole : CreditCard;
-                return (
-                  <button
-                    key={account.id}
-                    type="button"
-                    onClick={() => selectAccount(account)}
-                    className={`w-full px-5 py-5 text-left transition ${
-                      isSelected
-                        ? 'bg-[rgb(var(--icon-bg))]'
-                        : 'hover:bg-[rgb(var(--service-hover))]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-[rgb(var(--text-strong))]">{accountNames[account.id]}</p>
-                        <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
-                      </div>
-                      <AccountIcon
-                        size={18}
-                        strokeWidth={1.7}
-                        className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
-                      />
-                    </div>
-                    <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
-                    <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
-                  </button>
-                );
-              })}
-            </div>
+        {isLoadingAccounts ? (
+          <div className="mt-10 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-8 text-sm font-bold text-[rgb(var(--text-muted))]">
+            Loading accounts...
           </div>
+        ) : accountsError ? (
+          <div className="mt-10 rounded-lg border border-red-500/30 bg-red-500/10 p-8">
+            <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
+            <button
+              type="button"
+              onClick={() => void loadAccounts()}
+              className="mt-5 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : !selectedAccount ? (
+          <div className="mt-10 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-8 text-center shadow-vault">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+              <CreditCard size={20} strokeWidth={1.8} />
+            </div>
+            <h2 className="mt-5 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">No accounts yet</h2>
+            <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+              Create your first account to receive a backend-generated IBAN and start using transfers.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsCreateAccountOpen(true)}
+              className="mt-6 inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+            >
+              <Plus size={17} strokeWidth={1.8} />
+              Create account
+            </button>
+          </div>
+        ) : (
+          <div className="mt-10 grid gap-8 lg:grid-cols-[360px_1fr]">
+            <div className="overflow-hidden rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))]">
+              <div className="border-b border-[rgb(var(--line))] px-5 py-4">
+                <p className="text-[0.64rem] font-extrabold uppercase tracking-[0.28em] text-[rgb(var(--text-muted))]">Account Directory</p>
+              </div>
+              <div className="divide-y divide-[rgb(var(--line))]">
+                {accounts.map((account) => {
+                  const isSelected = account.id === selectedAccount.id;
+                  const isLocked = lockedAccountIds.has(account.id);
+                  const AccountIcon = isLocked ? LockKeyhole : CreditCard;
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      onClick={() => selectAccount(account)}
+                      className={`w-full px-5 py-5 text-left transition ${
+                        isSelected
+                          ? 'bg-[rgb(var(--icon-bg))]'
+                          : 'hover:bg-[rgb(var(--service-hover))]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
+                          <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
+                        </div>
+                        <AccountIcon
+                          size={18}
+                          strokeWidth={1.7}
+                          className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
+                        />
+                      </div>
+                      <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
+                      <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-          <article className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault sm:p-8">
-            <div className="flex flex-col justify-between gap-6 border-b border-[rgb(var(--line))] pb-7 sm:flex-row sm:items-start">
-              <div>
-                {editingName ? (
-                  <form className="flex flex-col gap-3 sm:flex-row" onSubmit={saveAccountName}>
-                    <input
-                      value={draftName}
-                      onChange={(event) => setDraftName(event.target.value)}
-                      maxLength={60}
-                      autoFocus
-                      aria-label="Account name"
-                      className="min-w-0 rounded-md border border-[rgb(var(--gold))] bg-[rgb(var(--page-bg))] px-4 py-2.5 text-lg font-bold text-[rgb(var(--text-strong))] outline-none"
-                    />
-                    <div className="flex gap-2">
-                      <button type="submit" className="grid h-11 w-11 place-items-center rounded-md bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))]" aria-label="Save account name">
-                        <Check size={17} strokeWidth={2} />
-                      </button>
-                      <button type="button" onClick={() => setEditingName(false)} className="grid h-11 w-11 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))]" aria-label="Cancel account name edit">
-                        <X size={17} strokeWidth={1.8} />
+            <article className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault sm:p-8">
+              <div className="flex flex-col justify-between gap-6 border-b border-[rgb(var(--line))] pb-7 sm:flex-row sm:items-start">
+                <div>
+                  {editingName ? (
+                    <form className="flex flex-col gap-3 sm:flex-row" onSubmit={saveAccountName}>
+                      <input
+                        value={draftName}
+                        onChange={(event) => setDraftName(event.target.value)}
+                        maxLength={80}
+                        autoFocus
+                        aria-label="Account name"
+                        className="min-w-0 rounded-md border border-[rgb(var(--gold))] bg-[rgb(var(--page-bg))] px-4 py-2.5 text-lg font-bold text-[rgb(var(--text-strong))] outline-none"
+                      />
+                      <div className="flex gap-2">
+                        <button type="submit" disabled={isSavingName} className="grid h-11 w-11 place-items-center rounded-md bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Save account name">
+                          <Check size={17} strokeWidth={2} />
+                        </button>
+                        <button type="button" onClick={() => setEditingName(false)} disabled={isSavingName} className="grid h-11 w-11 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Cancel account name edit">
+                          <X size={17} strokeWidth={1.8} />
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <h2 className="font-display text-3xl font-semibold text-[rgb(var(--text-strong))] sm:text-4xl">{selectedName}</h2>
+                      <button
+                        type="button"
+                        onClick={startRenaming}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                        aria-label="Rename account"
+                        title="Rename account"
+                      >
+                        <Pencil size={15} strokeWidth={1.8} />
                       </button>
                     </div>
-                  </form>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <h2 className="font-display text-3xl font-semibold text-[rgb(var(--text-strong))] sm:text-4xl">{selectedName}</h2>
-                    <button
-                      type="button"
-                      onClick={startRenaming}
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
-                      aria-label="Rename account"
-                      title="Rename account"
-                    >
-                      <Pencil size={15} strokeWidth={1.8} />
-                    </button>
-                  </div>
-                )}
-                <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{selectedAccount.type}</p>
-              </div>
-              <div className="sm:text-right">
-                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">Available Balance</p>
-                <p className="mt-2 font-display text-3xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(selectedAccount)}</p>
-              </div>
-            </div>
-
-            <div className="py-7">
-              <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">IBAN</p>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <p className="break-all font-mono text-base font-bold tracking-[0.08em] text-[rgb(var(--text-strong))]">
-                  {isIbanVisible ? selectedAccount.iban : maskIban(selectedAccount.iban)}
-                </p>
-                {selectedAccount.iban !== 'Pending assignment' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setIsIbanVisible((current) => !current)}
-                      className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
-                      aria-label={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
-                      title={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
-                    >
-                      <IbanVisibilityIcon size={16} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={copyIban}
-                      className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
-                      aria-label="Copy IBAN"
-                      title="Copy IBAN"
-                    >
-                      {copiedAccountId === selectedAccount.id
-                        ? <Check size={16} strokeWidth={2} />
-                        : <Copy size={16} strokeWidth={1.8} />}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
-              {[
-                ['Currency', selectedAccount.currency],
-                ['Account holder', 'Primary client'],
-                ['Opened', selectedAccount.opened],
-                ['Servicing branch', selectedAccount.branch],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
-                  <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
-                  <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                  )}
+                  <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{selectedAccount.type}</p>
                 </div>
-              ))}
-            </dl>
+                <div className="sm:text-right">
+                  <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">Available Balance</p>
+                  <p className="mt-2 font-display text-3xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(selectedAccount)}</p>
+                </div>
+              </div>
 
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={showTransactions}
-                disabled={isSelectedAccountLocked}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
-              >
-                <Zap size={16} strokeWidth={1.8} />
-                {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
-              </button>
-              <button
-                type="button"
-                onClick={startRenaming}
-                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-              >
-                <Pencil size={16} strokeWidth={1.8} />
-                Edit account name
-              </button>
-              <button
-                type="button"
-                onClick={toggleSelectedAccountLock}
-                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-              >
-                {isSelectedAccountLocked
-                  ? <Unlock size={16} strokeWidth={1.8} />
-                  : <LockKeyhole size={16} strokeWidth={1.8} />}
-                {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
-              </button>
-            </div>
-          </article>
-        </div>
+              <div className="py-7">
+                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">IBAN</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <p className="break-all font-mono text-base font-bold tracking-[0.08em] text-[rgb(var(--text-strong))]">
+                    {isIbanVisible ? selectedAccount.iban : maskIban(selectedAccount.iban)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsIbanVisible((current) => !current)}
+                    className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                    aria-label={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
+                    title={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
+                  >
+                    <IbanVisibilityIcon size={16} strokeWidth={1.8} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyIban}
+                    className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                    aria-label="Copy IBAN"
+                    title="Copy IBAN"
+                  >
+                    {copiedAccountId === selectedAccount.id
+                      ? <Check size={16} strokeWidth={2} />
+                      : <Copy size={16} strokeWidth={1.8} />}
+                  </button>
+                </div>
+              </div>
+
+              <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
+                {[
+                  ['Currency', selectedAccount.currency],
+                  ['Account holder', 'Primary client'],
+                  ['Opened', selectedAccount.opened],
+                  ['Servicing branch', selectedAccount.branch],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
+                    <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
+                    <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={showTransactions}
+                  disabled={isSelectedAccountLocked}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+                >
+                  <Zap size={16} strokeWidth={1.8} />
+                  {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={startRenaming}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                >
+                  <Pencil size={16} strokeWidth={1.8} />
+                  Edit account name
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleSelectedAccountLock}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                >
+                  {isSelectedAccountLocked
+                    ? <Unlock size={16} strokeWidth={1.8} />
+                    : <LockKeyhole size={16} strokeWidth={1.8} />}
+                  {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
+                </button>
+              </div>
+            </article>
+          </div>
+        )}
       </div>
 
       {isCreateAccountOpen && (
@@ -1010,24 +1217,12 @@ function AccountsPage({
                 <input
                   name="accountName"
                   type="text"
-                  maxLength={60}
+                  maxLength={80}
                   autoFocus
                   className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                  placeholder="My savings"
+                  placeholder="Main Account"
                   required
                 />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Account Type</span>
-                <select
-                  name="accountType"
-                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
-                  required
-                >
-                  <option value="Everyday account">Everyday account</option>
-                  <option value="Savings account">Savings account</option>
-                  <option value="Foreign currency account">Foreign currency account</option>
-                </select>
               </label>
               <label className="block">
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Currency</span>
@@ -1036,17 +1231,26 @@ function AccountsPage({
                   className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
                   required
                 >
-                  <option value="BGN">BGN</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
+                  {ACCOUNT_CURRENCIES.map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
                 </select>
               </label>
+              {createAccountError && <p className="text-sm font-bold text-red-500" role="alert">{createAccountError}</p>}
               <button
                 type="submit"
-                className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+                disabled={isCreatingAccount}
+                className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
-                Create account
+                {isCreatingAccount ? 'Creating...' : 'Create account'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCreateAccountOpen(false)}
+                disabled={isCreatingAccount}
+                className="w-full rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
               </button>
             </form>
           </dialog>
@@ -1606,7 +1810,113 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
   );
 }
 
-function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; showTransactions: () => void }) {
+type PortfolioPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+  showTransactions: () => void;
+}>;
+
+function PortfolioPage({
+  authSession,
+  showHome,
+  showTransactions,
+}: PortfolioPageProps) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [portfolioError, setPortfolioError] = React.useState('');
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = React.useState(true);
+
+  const loadPortfolio = React.useCallback(async () => {
+    setIsLoadingPortfolio(true);
+    setPortfolioError('');
+    try {
+      setAccounts(await fetchAccounts(authSession));
+    } catch (error) {
+      setPortfolioError(error instanceof Error ? error.message : 'Unable to load portfolio.');
+    } finally {
+      setIsLoadingPortfolio(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    loadPortfolio();
+  }, [loadPortfolio]);
+
+  const holdings = getPortfolioHoldings(accounts);
+  const allocations = getPortfolioCurrencyAllocations(accounts);
+  const portfolioMetrics = [
+    ['Total Value', getPortfolioTotalLabel(accounts)],
+    ['Accounts', String(accounts.length)],
+    ['Risk Profile', getPortfolioRiskProfile(accounts)],
+  ];
+  let allocationContent: React.ReactNode;
+  if (isLoadingPortfolio) {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">Loading portfolio...</p>;
+  } else if (allocations.length > 0) {
+    allocationContent = allocations.map((holding) => (
+      <div key={holding.category}>
+        <div className="mb-2 flex items-center justify-between text-sm font-bold">
+          <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
+          <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+        </div>
+        <div className="h-2 rounded-full bg-[rgb(var(--line))]">
+          <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocationWidth }} />
+        </div>
+      </div>
+    ));
+  } else {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">No allocation data yet.</p>;
+  }
+
+  let holdingsContent: React.ReactNode;
+  if (portfolioError) {
+    holdingsContent = (
+      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+        <p className="text-sm font-bold text-red-500" role="alert">{portfolioError}</p>
+        <button
+          type="button"
+          onClick={loadPortfolio}
+          className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  } else if (isLoadingPortfolio) {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading holdings...
+      </div>
+    );
+  } else if (holdings.length > 0) {
+    holdingsContent = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {holdings.map((holding) => (
+          <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+            <div>
+              <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
+              <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+            </div>
+            <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
+            <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
+            <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-8 text-center">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <ChartPie size={20} strokeWidth={1.8} />
+        </div>
+        <h3 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">No portfolio data yet</h3>
+        <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+          Create an account or fund an existing account to populate your portfolio.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
       <div className="mx-auto max-w-[980px]">
@@ -1628,14 +1938,10 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Command Center
             </h1>
             <p className="mt-7 max-w-[560px] text-lg leading-8 text-[rgb(var(--text-muted))]">
-              Review your allocation, performance, and holdings across the mandates managed by SAFE Bank advisors.
+              Review your account allocation, balances, and transfer-ready holdings from live banking data.
             </p>
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              {[
-                ['Total Value', '$4,821,390.44'],
-                ['YTD Return', '+11.8%'],
-                ['Risk Profile', 'Balanced'],
-              ].map(([label, value]) => (
+              {portfolioMetrics.map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
                   <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
                   <p className="mt-3 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{value}</p>
@@ -1655,17 +1961,7 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               </div>
             </div>
             <div className="mt-6 space-y-5">
-              {holdings.map((holding) => (
-                <div key={holding.category}>
-                  <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                    <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
-                    <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-[rgb(var(--line))]">
-                    <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocation }} />
-                  </div>
-                </div>
-              ))}
+              {allocationContent}
             </div>
           </div>
         </div>
@@ -1684,19 +1980,7 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Transfer Funds
             </button>
           </div>
-          <div className="divide-y divide-[rgb(var(--line))]">
-            {holdings.map((holding) => (
-              <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
-                <div>
-                  <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
-                </div>
-                <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
-                <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
-                <span className="text-sm font-extrabold text-emerald-500">{holding.change}</span>
-              </div>
-            ))}
-          </div>
+          {holdingsContent}
         </div>
       </div>
     </section>
@@ -2941,10 +3225,10 @@ function App() {
             <Cta showTransactions={showTransactions} showPortfolio={showPortfolio} />
           </>
         )}
-        {page === 'accounts' && <AccountsPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'accounts' && authSession && <AccountsPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'profile' && <UserPage authSession={authSession} showHome={showHome} showAccounts={showAccounts} />}
         {page === 'transactions' && <TransactionsPage showHome={showHome} />}
-        {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'portfolio' && <PortfolioPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
       </main>
       {page === 'home' && <Footer />}
