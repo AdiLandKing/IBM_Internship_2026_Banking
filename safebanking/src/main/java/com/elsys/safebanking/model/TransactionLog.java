@@ -1,18 +1,16 @@
 package com.elsys.safebanking.model;
 
-import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import java.time.Instant;
 
-@Getter
-@Setter
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "transaction_logs")
 public class TransactionLog {
@@ -32,4 +30,80 @@ public class TransactionLog {
     @Column(name = "time_stamp", nullable = false)
     private Instant timeStamp;
 
+    protected TransactionLog() {
+    }
+
+    private TransactionLog(Builder builder) {
+        this.logId = builder.logId;
+        this.transaction = builder.transaction;
+        this.logEntryText = builder.logEntryText;
+        this.timeStamp = builder.timeStamp;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public Long getLogId() {
+        return logId;
+    }
+
+    public void setLogId(Long logId) {
+        this.logId = logId;
+    }
+
+    public BankingTransaction getTransaction() {
+        return transaction;
+    }
+
+    public void setTransaction(BankingTransaction transaction) {
+        this.transaction = transaction;
+    }
+
+    public String getLogEntryText() {
+        return logEntryText;
+    }
+
+    public void setLogEntryText(String logEntryText) {
+        this.logEntryText = logEntryText;
+    }
+
+    public Instant getTimeStamp() {
+        return timeStamp;
+    }
+
+    public void setTimeStamp(Instant timeStamp) {
+        this.timeStamp = timeStamp;
+    }
+
+    public static class Builder {
+        private Long logId;
+        private BankingTransaction transaction;
+        private String logEntryText;
+        private Instant timeStamp;
+
+        public Builder logId(Long logId) {
+            this.logId = logId;
+            return this;
+        }
+
+        public Builder transaction(BankingTransaction transaction) {
+            this.transaction = transaction;
+            return this;
+        }
+
+        public Builder logEntryText(String logEntryText) {
+            this.logEntryText = logEntryText;
+            return this;
+        }
+
+        public Builder timeStamp(Instant timeStamp) {
+            this.timeStamp = timeStamp;
+            return this;
+        }
+
+        public TransactionLog build() {
+            return new TransactionLog(this);
+        }
+    }
 }

@@ -1,15 +1,19 @@
 package com.elsys.safebanking.model;
 
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-@Getter
-@Setter
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "transactions")
 public class BankingTransaction {
@@ -41,4 +45,141 @@ public class BankingTransaction {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TransactionStatus status;
+
+    protected BankingTransaction() {
+    }
+
+    private BankingTransaction(Builder builder) {
+        this.tranId = builder.tranId;
+        this.sourceAccount = builder.sourceAccount;
+        this.destinationAccount = builder.destinationAccount;
+        this.amount = builder.amount;
+        this.reason = builder.reason;
+        this.timeStamp = builder.timeStamp;
+        this.exchangeRateUsed = builder.exchangeRateUsed;
+        this.status = builder.status;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public Long getTranId() {
+        return tranId;
+    }
+
+    public void setTranId(Long tranId) {
+        this.tranId = tranId;
+    }
+
+    public BankAccount getSourceAccount() {
+        return sourceAccount;
+    }
+
+    public void setSourceAccount(BankAccount sourceAccount) {
+        this.sourceAccount = sourceAccount;
+    }
+
+    public BankAccount getDestinationAccount() {
+        return destinationAccount;
+    }
+
+    public void setDestinationAccount(BankAccount destinationAccount) {
+        this.destinationAccount = destinationAccount;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
+    }
+
+    public Instant getTimeStamp() {
+        return timeStamp;
+    }
+
+    public void setTimeStamp(Instant timeStamp) {
+        this.timeStamp = timeStamp;
+    }
+
+    public BigDecimal getExchangeRateUsed() {
+        return exchangeRateUsed;
+    }
+
+    public void setExchangeRateUsed(BigDecimal exchangeRateUsed) {
+        this.exchangeRateUsed = exchangeRateUsed;
+    }
+
+    public TransactionStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(TransactionStatus status) {
+        this.status = status;
+    }
+
+    public static class Builder {
+        private Long tranId;
+        private BankAccount sourceAccount;
+        private BankAccount destinationAccount;
+        private BigDecimal amount;
+        private String reason;
+        private Instant timeStamp;
+        private BigDecimal exchangeRateUsed;
+        private TransactionStatus status;
+
+        public Builder tranId(Long tranId) {
+            this.tranId = tranId;
+            return this;
+        }
+
+        public Builder sourceAccount(BankAccount sourceAccount) {
+            this.sourceAccount = sourceAccount;
+            return this;
+        }
+
+        public Builder destinationAccount(BankAccount destinationAccount) {
+            this.destinationAccount = destinationAccount;
+            return this;
+        }
+
+        public Builder amount(BigDecimal amount) {
+            this.amount = amount;
+            return this;
+        }
+
+        public Builder reason(String reason) {
+            this.reason = reason;
+            return this;
+        }
+
+        public Builder timeStamp(Instant timeStamp) {
+            this.timeStamp = timeStamp;
+            return this;
+        }
+
+        public Builder exchangeRateUsed(BigDecimal exchangeRateUsed) {
+            this.exchangeRateUsed = exchangeRateUsed;
+            return this;
+        }
+
+        public Builder status(TransactionStatus status) {
+            this.status = status;
+            return this;
+        }
+
+        public BankingTransaction build() {
+            return new BankingTransaction(this);
+        }
+    }
 }

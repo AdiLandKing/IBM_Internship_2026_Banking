@@ -13,15 +13,13 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
-import lombok.Getter;
 
-@Getter
 @Entity
 @Table(name = "bank_accounts")
 public class BankAccount {
 
     @Id
-    @Column(nullable = false, unique = true, length = 18)
+    @Column(nullable = false, unique = true, length = 34)
     private String iban;
 
     @Column(nullable = false, length = 80)
@@ -52,11 +50,71 @@ public class BankAccount {
     }
 
     public BankAccount(String iban, String name, String currency, User owner) {
+        this(name, iban, BigDecimal.ZERO, currency, owner);
+    }
+
+    public BankAccount(String name, String iban, BigDecimal balance, String currency, User owner) {
         this.iban = iban;
         this.name = requireAccountName(name);
-        this.balance = BigDecimal.ZERO;
+        this.balance = balance == null ? BigDecimal.ZERO : balance;
         this.currency = currency;
         this.status = AccountStatus.ACTIVE;
+        this.owner = owner;
+    }
+
+    public String getIban() {
+        return iban;
+    }
+
+    public void setIban(String iban) {
+        this.iban = iban;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getLegacyAccountName() {
+        return legacyAccountName;
+    }
+
+    public void setLegacyAccountName(String legacyAccountName) {
+        this.legacyAccountName = legacyAccountName;
+    }
+
+    public BigDecimal getBalance() {
+        return balance;
+    }
+
+    public void setBalance(BigDecimal balance) {
+        this.balance = balance;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public AccountStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(AccountStatus status) {
+        this.status = status;
+    }
+
+    public User getOwner() {
+        return owner;
+    }
+
+    public void setOwner(User owner) {
         this.owner = owner;
     }
 
