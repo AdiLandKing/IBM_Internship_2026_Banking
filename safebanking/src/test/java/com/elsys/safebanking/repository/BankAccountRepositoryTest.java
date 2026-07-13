@@ -55,7 +55,7 @@ class BankAccountRepositoryTest {
     void findByIdUsesIban() {
         bankAccountRepository.save(new BankAccount("BG33BUKB2020155555", "Current", "USD", userA));
 
-        Optional<BankAccount> found = bankAccountRepository.findById("BG33BUKB2020155555");
+        Optional<BankAccount> found = bankAccountRepository.findByIban("BG33BUKB2020155555");
 
         assertThat(found).isPresent();
         assertThat(found.get().getName()).isEqualTo("Current");
@@ -90,7 +90,7 @@ class BankAccountRepositoryTest {
         account.updateName("Premium Savings");
         bankAccountRepository.save(account);
 
-        BankAccount reloaded = bankAccountRepository.findById(account.getIban()).orElseThrow();
+    BankAccount reloaded = bankAccountRepository.findByIban(account.getIban()).orElseThrow();
         assertThat(reloaded.getName()).isEqualTo("Premium Savings");
     }
 
@@ -98,9 +98,8 @@ class BankAccountRepositoryTest {
     void deleteRemovesAccountByIban() {
         BankAccount account = bankAccountRepository.save(new BankAccount("BG77NWBK6016133192", "Temp", "BGN", userA));
 
-        bankAccountRepository.deleteById(account.getIban());
-
-        assertThat(bankAccountRepository.findById(account.getIban())).isEmpty();
+    bankAccountRepository.deleteByIban(account.getIban());
+        assertThat(bankAccountRepository.findByIban(account.getIban())).isEmpty();
     }
 
     @Test

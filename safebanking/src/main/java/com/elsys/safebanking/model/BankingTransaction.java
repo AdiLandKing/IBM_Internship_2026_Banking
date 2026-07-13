@@ -1,11 +1,7 @@
 package com.elsys.safebanking.model;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -39,13 +35,10 @@ public class BankingTransaction {
     @Column(nullable = false, name = "time_stamp")
     private Instant timeStamp;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private TransactionStatus status;
-
-    @Column(nullable = false, name = "exchange_rate_used", precision = 18, scale = 6)
+    @Column(name = "exchange_rate_used", precision = 18, scale = 4)
     private BigDecimal exchangeRateUsed;
 
-}
-    protected BankingTransaction() {}
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TransactionStatus status;
 }
