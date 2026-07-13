@@ -13,6 +13,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
@@ -52,6 +53,12 @@ public class BankAccount {
     @Setter(AccessLevel.NONE)
     private User owner;
 
+    @Column(updatable = false)
+    private Instant createdAt;
+
+    @Column
+    private Instant updatedAt;
+
     protected BankAccount() {
     }
 
@@ -84,6 +91,18 @@ public class BankAccount {
         this.name = requireAccountName(name);
     }
 
+    public void suspend() {
+        status = AccountStatus.SUSPENDED;
+    }
+
+    public void activate() {
+        status = AccountStatus.ACTIVE;
+    }
+
+    public void block() {
+        status = AccountStatus.BLOCKED;
+    }
+
     @PostLoad
     private void hydrateLegacyFields() {
         if (isBlank(name) && !isBlank(legacyAccountName)) {
@@ -95,7 +114,21 @@ public class BankAccount {
     }
 
     @PrePersist
+    private void onCreate() {
+        validateRequiredFields();
+        Instant now = Instant.now();
+        if (createdAt == null) {
+            createdAt = now;
+        }
+        updatedAt = now;
+    }
+
     @PreUpdate
+    private void onUpdate() {
+        validateRequiredFields();
+        updatedAt = Instant.now();
+    }
+
     private void validateRequiredFields() {
         name = requireAccountName(name);
         if (status == null) {
@@ -112,10 +145,6 @@ public class BankAccount {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    public void block() {
-        this.status = AccountStatus.BLOCKED;
     }
 
     public void unblock() {

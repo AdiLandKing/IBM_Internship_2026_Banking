@@ -103,6 +103,12 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(HttpStatus.FORBIDDEN.value(), "Forbidden", ex.getMessage()));
     }
 
+    @ExceptionHandler(AccountStateConflictException.class)
+    public ResponseEntity<ApiError> handleAccountStateConflict(AccountStateConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(HttpStatus.CONFLICT.value(), "Account State Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleConflict(ObjectOptimisticLockingFailureException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
