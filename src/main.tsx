@@ -1765,7 +1765,7 @@ function getTransferValidationErrors(
 
   if (!draft.destinationAccountIban.trim()) {
     validationErrors.destinationAccountIban = 'Recipient IBAN is required.';
-  } else if (!recipientAccount || recipientAccount.iban !== draft.destinationAccountIban.trim().toUpperCase()) {
+  } else if (recipientAccount?.iban !== draft.destinationAccountIban.trim().toUpperCase()) {
     validationErrors.destinationAccountIban = 'Enter a valid recipient IBAN from SAFE Bank.';
   }
 
@@ -1773,7 +1773,7 @@ function getTransferValidationErrors(
     validationErrors.amount = 'Amount is required.';
   } else if (!Number.isFinite(amount) || amount <= 0) {
     validationErrors.amount = 'Amount must be greater than zero.';
-  } else if (sourceAccount && recipientAccount && sourceAccount.currency === recipientAccount.currency && amount > sourceAccount.balance) {
+  } else if (canCheckTransferBalance(sourceAccount, recipientAccount) && amount > sourceAccount.balance) {
     validationErrors.amount = 'Insufficient funds in the selected account.';
   }
 
@@ -1784,20 +1784,59 @@ function getTransferValidationErrors(
   return validationErrors;
 }
 
-function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
+function canCheckTransferBalance(
+  sourceAccount: ClientAccount | null,
+  recipientAccount: RecipientAccountResponse | null,
+): sourceAccount is ClientAccount {
+  return Boolean(sourceAccount?.currency && sourceAccount.currency === recipientAccount?.currency);
+}
+
+function getTransferAmountLabel(draft: TransferDraft) {
+  if (!draft.amount) return formatCurrencyAmount(0, draft.currency);
+  return formatCurrencyAmount(Number(draft.amount), draft.currency);
+}
+
+function getDailyLimitLabel(sourceAccount: ClientAccount | null) {
+  return formatCurrencyAmount(500000, sourceAccount?.currency ?? 'EUR');
+}
+
+function getCurrencyCheckLabel(
+  recipientAccount: RecipientAccountResponse | null,
+  canCheckSourceBalance: boolean,
+) {
+  if (!recipientAccount) return '';
+  let balanceMessage = ' · Balance check skipped for different currencies';
+  if (canCheckSourceBalance) {
+    balanceMessage = '';
+  }
+  return `Recipient currency: ${recipientAccount.currency}${balanceMessage}`;
+}
+
+function getTransferSummaryRows(
+  draft: TransferDraft,
+  sourceAccount: ClientAccount | null,
+) {
+  let sourceAccountLabel = 'Not selected';
+  if (sourceAccount) {
+    sourceAccountLabel = `${sourceAccount.name} · ${maskIban(sourceAccount.iban)}`;
+  }
+
+  return [
+    ['From', sourceAccountLabel],
+    ['Recipient', draft.destinationAccountIban],
+    ['Amount', getTransferAmountLabel(draft)],
+    ['Currency', draft.currency],
+    ['Reason', draft.reason],
+  ];
+}
+
+function useTransferAccounts(
+  authSession: AuthSession,
+  setDraft: React.Dispatch<React.SetStateAction<TransferDraft>>,
+) {
   const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
-  const [draft, setDraft] = React.useState<TransferDraft>(EMPTY_TRANSFER_DRAFT);
-  const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
   const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(true);
   const [accountsError, setAccountsError] = React.useState('');
-  const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
-  const [recipientLookupError, setRecipientLookupError] = React.useState('');
-  const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
-  const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
-  const [ePin, setEPin] = React.useState('');
-  const [ePinError, setEPinError] = React.useState('');
-  const [transferNotice, setTransferNotice] = React.useState('');
-  const [isVerifyingEPin, setIsVerifyingEPin] = React.useState(false);
 
   const loadTransferAccounts = React.useCallback(async () => {
     setIsLoadingAccounts(true);
@@ -1819,22 +1858,43 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
     } finally {
       setIsLoadingAccounts(false);
     }
-  }, [authSession]);
+  }, [authSession, setDraft]);
 
   React.useEffect(() => {
     loadTransferAccounts();
   }, [loadTransferAccounts]);
 
+  return {
+    accounts,
+    accountsError,
+    isLoadingAccounts,
+    loadTransferAccounts,
+  };
+}
+
+function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
+  const [draft, setDraft] = React.useState<TransferDraft>(EMPTY_TRANSFER_DRAFT);
+  const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
+  const {
+    accounts,
+    accountsError,
+    isLoadingAccounts,
+    loadTransferAccounts,
+  } = useTransferAccounts(authSession, setDraft);
+  const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
+  const [recipientLookupError, setRecipientLookupError] = React.useState('');
+  const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
+  const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
+  const [ePin, setEPin] = React.useState('');
+  const [ePinError, setEPinError] = React.useState('');
+  const [transferNotice, setTransferNotice] = React.useState('');
+  const [isVerifyingEPin, setIsVerifyingEPin] = React.useState(false);
+
   const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
   const totalBalanceLabel = getPortfolioTotalLabel(accounts);
-  const dailyLimitLabel = sourceAccount ? formatCurrencyAmount(500000, sourceAccount.currency) : formatCurrencyAmount(500000, 'EUR');
-  const formattedTransferAmount = draft.amount
-    ? formatCurrencyAmount(Number(draft.amount), draft.currency)
-    : formatCurrencyAmount(0, draft.currency);
-  const canCheckSourceBalance = Boolean(sourceAccount && recipientAccount && sourceAccount.currency === recipientAccount.currency);
-  const currencyCheckLabel = recipientAccount
-    ? `Recipient currency: ${recipientAccount.currency}${canCheckSourceBalance ? '' : ' · Balance check skipped for different currencies'}`
-    : '';
+  const dailyLimitLabel = getDailyLimitLabel(sourceAccount);
+  const canCheckSourceBalance = canCheckTransferBalance(sourceAccount, recipientAccount);
+  const currencyCheckLabel = getCurrencyCheckLabel(recipientAccount, canCheckSourceBalance);
 
   function updateDraft(field: keyof TransferDraft, value: string) {
     setTransferNotice('');
@@ -1941,13 +2001,15 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
     setEPinError('');
   }
 
-  const summaryRows = [
-    ['From', sourceAccount ? `${sourceAccount.name} · ${maskIban(sourceAccount.iban)}` : 'Not selected'],
-    ['Recipient', draft.destinationAccountIban],
-    ['Amount', formattedTransferAmount],
-    ['Currency', draft.currency],
-    ['Reason', draft.reason],
-  ];
+  function retryTransferAccounts() {
+    loadTransferAccounts();
+  }
+
+  function checkCurrentRecipientIban() {
+    checkRecipientIban();
+  }
+
+  const summaryRows = getTransferSummaryRows(draft, sourceAccount);
 
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
@@ -2002,7 +2064,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
                 <button
                   type="button"
-                  onClick={() => void loadTransferAccounts()}
+                  onClick={retryTransferAccounts}
                   className="mt-3 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
                 >
                   Retry
@@ -2035,7 +2097,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <input
                   value={draft.destinationAccountIban}
                   onChange={(event) => updateDraft('destinationAccountIban', event.target.value.toUpperCase())}
-                  onBlur={() => void checkRecipientIban()}
+                  onBlur={checkCurrentRecipientIban}
                   className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
                     fieldErrors.destinationAccountIban || recipientLookupError ? 'border-red-500' : 'border-[rgb(var(--line))]'
                   }`}
