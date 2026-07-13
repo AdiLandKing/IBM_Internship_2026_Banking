@@ -5,10 +5,14 @@ import com.elsys.safebanking.dto.CreateBankAccountRequest;
 import com.elsys.safebanking.dto.RecipientAccountResponse;
 import com.elsys.safebanking.dto.UpdateBankAccountNameRequest;
 import com.elsys.safebanking.exception.AccountNotFoundException;
+import com.elsys.safebanking.exception.InvalidRequestException;
+import com.elsys.safebanking.model.AccountStatus;
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.BankAccountRepository;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -18,6 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class AccountService {
 
+    private static final Logger logger = LoggerFactory.getLogger(AccountService.class);
     private static final int MAX_SAVE_ATTEMPTS = 5;
 
     private final BankAccountRepository bankAccountRepository;
@@ -70,6 +75,32 @@ public class AccountService {
         return bankAccountRepository.findById(iban.trim().toUpperCase())
                 .map(RecipientAccountResponse::from)
                 .orElseThrow(() -> new AccountNotFoundException(iban));
+    }
+
+    @Transactional
+    public BankAccountResponse blockAccount(String iban) {
+        String normalizedIban = iban.trim().toUpperCase();
+        BankAccount account = bankAccountRepository.findByIban(normalizedIban)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+        if (account.getStatus() == AccountStatus.BLOCKED) {
+            throw new InvalidRequestException("Account " + normalizedIban + " is already blocked");
+        }
+        account.block();
+        logger.info("Admin action: account {} blocked", normalizedIban);
+        return BankAccountResponse.from(account);
+    }
+
+    @Transactional
+    public BankAccountResponse unblockAccount(String iban) {
+        String normalizedIban = iban.trim().toUpperCase();
+        BankAccount account = bankAccountRepository.findByIban(normalizedIban)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+        if (account.getStatus() != AccountStatus.BLOCKED) {
+            throw new InvalidRequestException("Account " + normalizedIban + " is not currently blocked");
+        }
+        account.unblock();
+        logger.info("Admin action: account {} unblocked", normalizedIban);
+        return BankAccountResponse.from(account);
     }
 
     @Transactional

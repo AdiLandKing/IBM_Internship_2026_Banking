@@ -2,6 +2,7 @@ package com.elsys.safebanking.dto;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.elsys.safebanking.model.AccountStatus;
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ class BankAccountResponseTest {
         assertThat(response.name()).isEqualTo("Main Account");
         assertThat(response.balance()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(response.currency()).isEqualTo("BGN");
+        assertThat(response.status()).isEqualTo(AccountStatus.ACTIVE);
     }
 
     @Test
@@ -28,13 +30,15 @@ class BankAccountResponseTest {
                 "BG4K82L9P01M7Q3X5Z",
                 "Main Account",
                 BigDecimal.ZERO,
-                "BGN"
+                "BGN",
+                AccountStatus.ACTIVE
         );
         BankAccountResponse second = new BankAccountResponse(
                 "BG4K82L9P01M7Q3X5Z",
                 "Main Account",
                 BigDecimal.ZERO,
-                "BGN"
+                "BGN",
+                AccountStatus.ACTIVE
         );
 
         assertThat(first).isEqualTo(second);
