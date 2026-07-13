@@ -2,13 +2,10 @@ package com.elsys.safebanking.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Version;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import lombok.Getter;
@@ -22,8 +19,11 @@ public class BankAccount {
     @Column(nullable = false, unique = true, length = 18)
     private String iban;
 
-    @Column(name = "account_name", nullable = false, length = 80)
+    @Column(length = 80)
     private String name;
+
+    @Column(name = "account_name", insertable = false, updatable = false, length = 80)
+    private String legacyAccountName;
 
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal balance;
@@ -31,16 +31,9 @@ public class BankAccount {
     @Column(nullable = false, length = 3)
     private String currency;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 10)
-    private AccountStatus status = AccountStatus.ACTIVE;
-
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User owner;
-
-    @Version
-    private Long version;
 
     protected BankAccount() {
     }
@@ -59,5 +52,16 @@ public class BankAccount {
 
     public void updateName(String name) {
         this.name = name;
+    }
+
+    public String getName() {
+        if (name != null && !name.isBlank()) {
+            return name;
+        }
+        return legacyAccountName;
+    }
+
+    public AccountStatus getStatus() {
+        return AccountStatus.ACTIVE;
     }
 }

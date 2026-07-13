@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 @DataJpaTest
@@ -22,6 +23,9 @@ class BankAccountRepositoryTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private User userA;
     private User userB;
@@ -37,7 +41,7 @@ class BankAccountRepositoryTest {
 
     @Test
     void savePersistsAccountWithIbanPrimaryKey() {
-        BankAccount saved = bankAccountRepository.save(new BankAccount(
+        BankAccount saved = bankAccountRepository.saveAndFlush(new BankAccount(
                 "BG4K82L9P01M7Q3X5Z",
                 "Savings",
                 "EUR",
@@ -49,6 +53,19 @@ class BankAccountRepositoryTest {
         assertThat(saved.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(saved.getCurrency()).isEqualTo("EUR");
         assertThat(saved.getOwner().getId()).isEqualTo(userA.getId());
+
+        String persistedName = jdbcTemplate.queryForObject(
+                "select name from bank_accounts where iban = ?",
+                String.class,
+                saved.getIban()
+        );
+        String legacyName = jdbcTemplate.queryForObject(
+                "select account_name from bank_accounts where iban = ?",
+                String.class,
+                saved.getIban()
+        );
+        assertThat(persistedName).isEqualTo("Savings");
+        assertThat(legacyName).isNull();
     }
 
     @Test
@@ -59,6 +76,25 @@ class BankAccountRepositoryTest {
 
         assertThat(found).isPresent();
         assertThat(found.get().getName()).isEqualTo("Current");
+    }
+
+    @Test
+    void getNameFallsBackToLegacyAccountNameColumn() {
+        jdbcTemplate.update(
+                """
+                insert into bank_accounts (iban, account_name, balance, currency, user_id)
+                values (?, ?, ?, ?, ?)
+                """,
+                "BG55BUKB2020155555",
+                "Legacy Savings",
+                BigDecimal.ZERO,
+                "EUR",
+                userA.getId()
+        );
+
+        BankAccount found = bankAccountRepository.findByIban("BG55BUKB2020155555").orElseThrow();
+
+        assertThat(found.getName()).isEqualTo("Legacy Savings");
     }
 
     @Test
