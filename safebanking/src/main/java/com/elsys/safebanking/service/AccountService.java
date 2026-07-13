@@ -5,6 +5,8 @@ import com.elsys.safebanking.dto.CreateBankAccountRequest;
 import com.elsys.safebanking.dto.RecipientAccountResponse;
 import com.elsys.safebanking.dto.UpdateBankAccountNameRequest;
 import com.elsys.safebanking.exception.AccountNotFoundException;
+import com.elsys.safebanking.exception.InvalidRequestException;
+import com.elsys.safebanking.model.AccountStatus;
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.BankAccountRepository;
@@ -70,6 +72,25 @@ public class AccountService {
         return bankAccountRepository.findById(iban.trim().toUpperCase())
                 .map(RecipientAccountResponse::from)
                 .orElseThrow(() -> new AccountNotFoundException(iban));
+    }
+
+    @Transactional
+    public BankAccountResponse blockAccount(String iban) {
+        BankAccount account = bankAccountRepository.findByIban(iban)
+                .orElseThrow(() -> new AccountNotFoundException(iban));
+        account.block();
+        return BankAccountResponse.from(account);
+    }
+
+    @Transactional
+    public BankAccountResponse unblockAccount(String iban) {
+        BankAccount account = bankAccountRepository.findByIban(iban)
+                .orElseThrow(() -> new AccountNotFoundException(iban));
+        if (account.getStatus() != AccountStatus.BLOCKED) {
+            throw new InvalidRequestException("Account " + iban + " is not currently blocked");
+        }
+        account.unblock();
+        return BankAccountResponse.from(account);
     }
 
     @Transactional

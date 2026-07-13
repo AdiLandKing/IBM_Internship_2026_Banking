@@ -60,4 +60,12 @@ public class BankAccount {
     public void updateName(String name) {
         this.name = name;
     }
+
+    public void block() {
+        this.status = AccountStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        this.status = AccountStatus.ACTIVE;
+    }
 }
