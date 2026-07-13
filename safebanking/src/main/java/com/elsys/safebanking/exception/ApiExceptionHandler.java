@@ -103,6 +103,12 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(HttpStatus.CONFLICT.value(), "Conflict", "Concurrent transaction conflict. Please retry."));
     }
 
+    @ExceptionHandler(ExchangeRateUnavailableException.class)
+    public ResponseEntity<ApiError> handleExchangeRateUnavailable(ExchangeRateUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiError.of(HttpStatus.SERVICE_UNAVAILABLE.value(), "Service Unavailable", ex.getMessage()));
+    }
+
     // ----------------------------------------
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
