@@ -437,7 +437,7 @@ function accountResponseToClientAccount(account: AccountResponse): ClientAccount
     balance: Number(account.balance),
     currency: account.currency,
     status: account.status,
-    opened: formatProfileDate(account.createdAt, 'Not available'),
+    opened: formatProfileDate(account.createdAt ?? null, 'Not available'),
     branch: 'Sofia Private Office',
   };
 }
@@ -3101,7 +3101,7 @@ function AdminRoute({
     );
   }
 
-  if (!isAllowed) {
+  if (!authSession || !isAllowed) {
     return <AdminAccessGate authSession={authSession} openAuth={openAuth} showHome={showHome} />;
   }
 

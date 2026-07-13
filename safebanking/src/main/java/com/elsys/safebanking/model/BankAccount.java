@@ -103,6 +103,10 @@ public class BankAccount {
         status = AccountStatus.BLOCKED;
     }
 
+    public void unblock() {
+        status = AccountStatus.ACTIVE;
+    }
+
     @PostLoad
     private void hydrateLegacyFields() {
         if (isBlank(name) && !isBlank(legacyAccountName)) {
@@ -145,17 +149,5 @@ public class BankAccount {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    public void unblock() {
-        this.status = AccountStatus.ACTIVE;
-    }
-
-    public void suspend() {
-        this.status = AccountStatus.SUSPENDED;
-    }
-
-    public void activate() {
-        this.status = AccountStatus.ACTIVE;
     }
 }
