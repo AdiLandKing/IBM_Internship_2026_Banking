@@ -13,9 +13,13 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "bank_accounts")
+@Getter
+@Setter
 public class BankAccount {
 
     @Id
@@ -59,62 +63,6 @@ public class BankAccount {
         this.balance = balance == null ? BigDecimal.ZERO : balance;
         this.currency = currency;
         this.status = AccountStatus.ACTIVE;
-        this.owner = owner;
-    }
-
-    public String getIban() {
-        return iban;
-    }
-
-    public void setIban(String iban) {
-        this.iban = iban;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getLegacyAccountName() {
-        return legacyAccountName;
-    }
-
-    public void setLegacyAccountName(String legacyAccountName) {
-        this.legacyAccountName = legacyAccountName;
-    }
-
-    public BigDecimal getBalance() {
-        return balance;
-    }
-
-    public void setBalance(BigDecimal balance) {
-        this.balance = balance;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public void setCurrency(String currency) {
-        this.currency = currency;
-    }
-
-    public AccountStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(AccountStatus status) {
-        this.status = status;
-    }
-
-    public User getOwner() {
-        return owner;
-    }
-
-    public void setOwner(User owner) {
         this.owner = owner;
     }
 

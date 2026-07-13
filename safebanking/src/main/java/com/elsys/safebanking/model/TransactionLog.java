@@ -10,9 +10,13 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "transaction_logs")
+@Getter
+@Setter
 public class TransactionLog {
 
     @Id
@@ -42,38 +46,6 @@ public class TransactionLog {
 
     public static Builder builder() {
         return new Builder();
-    }
-
-    public Long getLogId() {
-        return logId;
-    }
-
-    public void setLogId(Long logId) {
-        this.logId = logId;
-    }
-
-    public BankingTransaction getTransaction() {
-        return transaction;
-    }
-
-    public void setTransaction(BankingTransaction transaction) {
-        this.transaction = transaction;
-    }
-
-    public String getLogEntryText() {
-        return logEntryText;
-    }
-
-    public void setLogEntryText(String logEntryText) {
-        this.logEntryText = logEntryText;
-    }
-
-    public Instant getTimeStamp() {
-        return timeStamp;
-    }
-
-    public void setTimeStamp(Instant timeStamp) {
-        this.timeStamp = timeStamp;
     }
 
     public static class Builder {

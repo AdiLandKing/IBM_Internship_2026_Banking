@@ -13,9 +13,13 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "transactions")
+@Getter
+@Setter
 public class BankingTransaction {
 
     @Id
@@ -62,70 +66,6 @@ public class BankingTransaction {
 
     public static Builder builder() {
         return new Builder();
-    }
-
-    public Long getTranId() {
-        return tranId;
-    }
-
-    public void setTranId(Long tranId) {
-        this.tranId = tranId;
-    }
-
-    public BankAccount getSourceAccount() {
-        return sourceAccount;
-    }
-
-    public void setSourceAccount(BankAccount sourceAccount) {
-        this.sourceAccount = sourceAccount;
-    }
-
-    public BankAccount getDestinationAccount() {
-        return destinationAccount;
-    }
-
-    public void setDestinationAccount(BankAccount destinationAccount) {
-        this.destinationAccount = destinationAccount;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public void setAmount(BigDecimal amount) {
-        this.amount = amount;
-    }
-
-    public String getReason() {
-        return reason;
-    }
-
-    public void setReason(String reason) {
-        this.reason = reason;
-    }
-
-    public Instant getTimeStamp() {
-        return timeStamp;
-    }
-
-    public void setTimeStamp(Instant timeStamp) {
-        this.timeStamp = timeStamp;
-    }
-
-    public BigDecimal getExchangeRateUsed() {
-        return exchangeRateUsed;
-    }
-
-    public void setExchangeRateUsed(BigDecimal exchangeRateUsed) {
-        this.exchangeRateUsed = exchangeRateUsed;
-    }
-
-    public TransactionStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(TransactionStatus status) {
-        this.status = status;
     }
 
     public static class Builder {
