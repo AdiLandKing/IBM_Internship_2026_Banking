@@ -5,6 +5,8 @@ import com.elsys.safebanking.dto.EPinStatusResponse;
 import com.elsys.safebanking.dto.SetEPinRequest;
 import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
+import com.elsys.safebanking.dto.VerifyEPinRequest;
+import com.elsys.safebanking.dto.VerifyEPinResponse;
 import com.elsys.safebanking.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -60,6 +62,15 @@ public class UserController {
             HttpServletRequest servletRequest
     ) {
         return userService.changeEPin(principal.getName(), request, clientIp(servletRequest));
+    }
+
+    @PostMapping("/e-pin/verify")
+    public VerifyEPinResponse verifyEPin(
+            Principal principal,
+            @Valid @RequestBody VerifyEPinRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        return userService.verifyEPin(principal.getName(), request, clientIp(servletRequest));
     }
 
     private String clientIp(HttpServletRequest request) {

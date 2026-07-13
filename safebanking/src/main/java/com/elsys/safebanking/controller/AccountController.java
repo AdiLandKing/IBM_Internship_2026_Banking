@@ -2,6 +2,7 @@ package com.elsys.safebanking.controller;
 
 import com.elsys.safebanking.dto.BankAccountResponse;
 import com.elsys.safebanking.dto.CreateBankAccountRequest;
+import com.elsys.safebanking.dto.RecipientAccountResponse;
 import com.elsys.safebanking.dto.UpdateBankAccountNameRequest;
 import com.elsys.safebanking.service.AccountService;
 import jakarta.validation.Valid;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,6 +41,11 @@ public class AccountController {
     @GetMapping
     public List<BankAccountResponse> accounts(Principal principal) {
         return accountService.getAccounts(principal.getName());
+    }
+
+    @GetMapping("/lookup")
+    public RecipientAccountResponse recipientAccount(@RequestParam String iban) {
+        return accountService.getRecipientAccount(iban);
     }
 
     @GetMapping("/{iban}")

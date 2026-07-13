@@ -116,6 +116,33 @@ class AccountControllerTests {
     }
 
     @Test
+    void authenticatedUserCanLookupRecipientAccountCurrency() throws Exception {
+        String clientToken = register("client@example.com");
+        String otherToken = register("other@example.com");
+        String otherIban = createAccount(otherToken, "Other Account", "EUR");
+
+        mockMvc.perform(get("/api/accounts/lookup")
+                        .param("iban", otherIban)
+                        .header("Authorization", "Bearer " + clientToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(otherIban))
+                .andExpect(jsonPath("$.currency").value("EUR"))
+                .andExpect(jsonPath("$.balance").doesNotExist())
+                .andExpect(jsonPath("$.name").doesNotExist());
+    }
+
+    @Test
+    void recipientLookupRejectsUnknownIban() throws Exception {
+        String token = register("client@example.com");
+
+        mockMvc.perform(get("/api/accounts/lookup")
+                        .param("iban", "BG00UNKNOWNACCOUNT")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Account Not Found"));
+    }
+
+    @Test
     void authenticatedUserCanUpdateOwnedAccountName() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
