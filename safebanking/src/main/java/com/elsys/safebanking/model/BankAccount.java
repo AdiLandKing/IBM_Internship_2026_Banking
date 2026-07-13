@@ -134,10 +134,6 @@ public class BankAccount {
         return value == null || value.isBlank();
     }
 
-    public void block() {
-        this.status = AccountStatus.BLOCKED;
-    }
-
     public void unblock() {
         this.status = AccountStatus.ACTIVE;
     }
