@@ -285,6 +285,39 @@ class AuthControllerTests {
     }
 
     @Test
+    void authenticatedUserCanVerifyEPinWithoutExposingIt() throws Exception {
+        String token = registerWithEPin("client@example.com", "123456");
+
+        mockMvc.perform(post("/api/users/e-pin/verify")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("ePin", "123456"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(true))
+                .andExpect(jsonPath("$.ePin").doesNotExist());
+    }
+
+    @Test
+    void verifyEPinRejectsWrongOrMalformedPin() throws Exception {
+        String token = registerWithEPin("client@example.com", "123456");
+
+        mockMvc.perform(post("/api/users/e-pin/verify")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("ePin", "000000"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("E-PIN Verification Failed"))
+                .andExpect(jsonPath("$.message").value("Current password or E-PIN is incorrect"));
+
+        mockMvc.perform(post("/api/users/e-pin/verify")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("ePin", "12345"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.ePin").exists());
+    }
+
+    @Test
     void changeEPinRejectsWrongPasswordAndInvalidValue() throws Exception {
         String token = registerWithEPin("client@example.com", "123456");
 
