@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -63,6 +64,34 @@ public class ApiExceptionHandler {
                         exception.getMessage()
                 ));
     }
+
+    // --- NEW EXCEPTIONS FOR TRANSFER FLOW ---
+
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ApiError> handleBadRequest(InvalidRequestException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiError.of(HttpStatus.BAD_REQUEST.value(), "Bad Request", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), "Not Found", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenAccessException.class)
+    public ResponseEntity<ApiError> handleForbidden(ForbiddenAccessException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(HttpStatus.FORBIDDEN.value(), "Forbidden", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleConflict(ObjectOptimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(HttpStatus.CONFLICT.value(), "Conflict", "Concurrent transaction conflict. Please retry."));
+    }
+
+    // ----------------------------------------
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {

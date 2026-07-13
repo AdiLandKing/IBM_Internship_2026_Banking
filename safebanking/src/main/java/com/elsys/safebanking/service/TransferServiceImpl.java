@@ -2,6 +2,9 @@ package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
+import com.elsys.safebanking.exception.ForbiddenAccessException;
+import com.elsys.safebanking.exception.InvalidRequestException;
+import com.elsys.safebanking.exception.ResourceNotFoundException;
 import com.elsys.safebanking.model.*;
 import com.elsys.safebanking.repository.BankAccountRepository;
 import com.elsys.safebanking.repository.BankingTransactionRepository;
@@ -25,18 +28,30 @@ public class TransferServiceImpl implements TransferService {
     @Override
     @Transactional
     public TransferResponse transfer(TransferRequest request) {
-        String currentUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-
-        BankAccount sourceAccount = bankAccountRepository.findByIban(request.sourceAccountIban())
-                .orElseThrow(() -> new IllegalArgumentException("Source account not found"));
-
-        BankAccount destinationAccount = bankAccountRepository.findByIban(request.destinationAccountIban())
-                .orElseThrow(() -> new IllegalArgumentException("Destination account not found"));
-
-        if (!sourceAccount.getOwner().getEmail().equals(currentUserEmail)) {
-            throw new SecurityException("You are not authorized to transfer from this account");
+        // 1. Strict Input Validation (Guard Block)
+        if (request == null || request.amount() == null || request.amount().compareTo(BigDecimal.ZERO) <= 0 ||
+            request.sourceAccountIban() == null || request.sourceAccountIban().isBlank() ||
+            request.destinationAccountIban() == null || request.destinationAccountIban().isBlank() ||
+            request.sourceAccountIban().equals(request.destinationAccountIban())) {
+            throw new InvalidRequestException("Invalid transfer parameters: amount must be > 0 and IBANs must be valid and distinct.");
         }
 
+        // 2. Resolve Auth Context
+        String currentUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+
+        // 3. Find Accounts (with proper domain exceptions)
+        BankAccount sourceAccount = bankAccountRepository.findByIban(request.sourceAccountIban())
+                .orElseThrow(() -> new ResourceNotFoundException("Source account not found"));
+
+        BankAccount destinationAccount = bankAccountRepository.findByIban(request.destinationAccountIban())
+                .orElseThrow(() -> new ResourceNotFoundException("Destination account not found"));
+
+        // 4. Verify Ownership
+        if (!sourceAccount.getOwner().getEmail().equals(currentUserEmail)) {
+            throw new ForbiddenAccessException("You are not authorized to transfer from this account");
+        }
+
+        // 5. Check Status
         if (sourceAccount.getStatus() != AccountStatus.ACTIVE) {
             throw new IllegalStateException("Source account is not active");
         }
@@ -45,16 +60,19 @@ public class TransferServiceImpl implements TransferService {
             throw new IllegalStateException("Destination account is not active");
         }
 
+        // 6. Check Balance
         if (sourceAccount.getBalance().compareTo(request.amount()) < 0) {
             return createFailedTransaction(sourceAccount, destinationAccount, request.amount(), request.reason(), "Insufficient funds");
         }
 
+        // 7. Debit and Credit
         sourceAccount.updateBalance(sourceAccount.getBalance().subtract(request.amount()));
         destinationAccount.updateBalance(destinationAccount.getBalance().add(request.amount()));
 
         bankAccountRepository.save(sourceAccount);
         bankAccountRepository.save(destinationAccount);
 
+        // 8. Persist Success
         BankingTransaction tx = saveTransaction(sourceAccount, destinationAccount, request.amount(), request.reason(), TransactionStatus.COMPLETED);
         saveLog(tx, "Transfer completed successfully");
 
