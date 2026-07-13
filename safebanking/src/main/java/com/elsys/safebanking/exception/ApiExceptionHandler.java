@@ -71,6 +71,12 @@ public class ApiExceptionHandler {
                 ));
     }
 
+    @ExceptionHandler(AccountBlockedException.class)
+    ResponseEntity<ApiError> handleAccountBlocked(AccountBlockedException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(HttpStatus.FORBIDDEN.value(), "Account Blocked", exception.getMessage()));
+    }
+
     // --- NEW EXCEPTIONS FOR TRANSFER FLOW ---
 
     @ExceptionHandler(InvalidRequestException.class)
