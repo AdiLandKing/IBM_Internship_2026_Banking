@@ -2,6 +2,7 @@ package com.elsys.safebanking.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.elsys.safebanking.model.AccountStatus;
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
 import java.math.BigDecimal;
@@ -52,6 +53,7 @@ class BankAccountRepositoryTest {
         assertThat(saved.getName()).isEqualTo("Savings");
         assertThat(saved.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(saved.getCurrency()).isEqualTo("EUR");
+        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
         assertThat(saved.getOwner().getId()).isEqualTo(userA.getId());
 
         String persistedName = jdbcTemplate.queryForObject(
@@ -64,8 +66,14 @@ class BankAccountRepositoryTest {
                 String.class,
                 saved.getIban()
         );
+        String persistedStatus = jdbcTemplate.queryForObject(
+                "select status from bank_accounts where iban = ?",
+                String.class,
+                saved.getIban()
+        );
         assertThat(persistedName).isEqualTo("Savings");
         assertThat(legacyName).isNull();
+        assertThat(persistedStatus).isEqualTo("ACTIVE");
     }
 
     @Test
@@ -82,11 +90,13 @@ class BankAccountRepositoryTest {
     void getNameFallsBackToLegacyAccountNameColumn() {
         jdbcTemplate.update(
                 """
-                insert into bank_accounts (iban, account_name, balance, currency, user_id)
-                values (?, ?, ?, ?, ?)
+                insert into bank_accounts (iban, name, account_name, status, balance, currency, user_id)
+                values (?, ?, ?, ?, ?, ?, ?)
                 """,
                 "BG55BUKB2020155555",
+                " ",
                 "Legacy Savings",
+                "ACTIVE",
                 BigDecimal.ZERO,
                 "EUR",
                 userA.getId()
@@ -126,7 +136,7 @@ class BankAccountRepositoryTest {
         account.updateName("Premium Savings");
         bankAccountRepository.save(account);
 
-    BankAccount reloaded = bankAccountRepository.findByIban(account.getIban()).orElseThrow();
+        BankAccount reloaded = bankAccountRepository.findByIban(account.getIban()).orElseThrow();
         assertThat(reloaded.getName()).isEqualTo("Premium Savings");
     }
 
@@ -134,7 +144,7 @@ class BankAccountRepositoryTest {
     void deleteRemovesAccountByIban() {
         BankAccount account = bankAccountRepository.save(new BankAccount("BG77NWBK6016133192", "Temp", "BGN", userA));
 
-    bankAccountRepository.deleteByIban(account.getIban());
+        bankAccountRepository.deleteByIban(account.getIban());
         assertThat(bankAccountRepository.findByIban(account.getIban())).isEmpty();
     }
 
