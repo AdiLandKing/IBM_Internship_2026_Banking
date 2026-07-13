@@ -1,5 +1,6 @@
 package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.service.AccountService;
 import com.elsys.safebanking.service.AdminTransactionService;
 import com.elsys.safebanking.service.AppUserDetailsService;
 import com.elsys.safebanking.service.JwtService;
@@ -27,6 +28,9 @@ class AdminControllerTest {
 
     @MockitoBean
     private UserService userService;
+
+    @MockitoBean
+    private AccountService accountService;
 
     @MockitoBean
     private AdminTransactionService adminTransactionService;
