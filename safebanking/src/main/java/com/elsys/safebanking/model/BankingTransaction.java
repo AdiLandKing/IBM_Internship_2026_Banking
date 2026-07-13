@@ -1,13 +1,9 @@
 package com.elsys.safebanking.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-@Getter
-@Setter
 @Entity
 @Table(name = "transactions")
 public class BankingTransaction {
@@ -41,4 +37,68 @@ public class BankingTransaction {
     private BigDecimal exchangeRateUsed;
 
     protected BankingTransaction() {}
+
+    public Long getTranId() {
+        return tranId;
+    }
+
+    public void setTranId(Long tranId) {
+        this.tranId = tranId;
+    }
+
+    public BankAccount getSourceAccount() {
+        return sourceAccount;
+    }
+
+    public void setSourceAccount(BankAccount sourceAccount) {
+        this.sourceAccount = sourceAccount;
+    }
+
+    public BankAccount getDestinationAccount() {
+        return destinationAccount;
+    }
+
+    public void setDestinationAccount(BankAccount destinationAccount) {
+        this.destinationAccount = destinationAccount;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
+    }
+
+    public Instant getTimeStamp() {
+        return timeStamp;
+    }
+
+    public void setTimeStamp(Instant timeStamp) {
+        this.timeStamp = timeStamp;
+    }
+
+    public TransactionStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(TransactionStatus status) {
+        this.status = status;
+    }
+
+    public BigDecimal getExchangeRateUsed() {
+        return exchangeRateUsed;
+    }
+
+    public void setExchangeRateUsed(BigDecimal exchangeRateUsed) {
+        this.exchangeRateUsed = exchangeRateUsed;
+    }
 }

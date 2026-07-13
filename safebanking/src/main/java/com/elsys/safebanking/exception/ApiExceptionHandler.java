@@ -71,12 +71,6 @@ public class ApiExceptionHandler {
                 ));
     }
 
-    @ExceptionHandler(AccountNotFoundException.class)
-    ResponseEntity<ApiError> handleAccountNotFound(AccountNotFoundException exception) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiError.of(HttpStatus.NOT_FOUND.value(), "Not Found", exception.getMessage()));
-    }
-
     @ExceptionHandler(InsufficientFundsException.class)
     ResponseEntity<ApiError> handleInsufficientFunds(InsufficientFundsException exception) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)

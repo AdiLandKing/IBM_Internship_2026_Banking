@@ -13,9 +13,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
-import lombok.Getter;
 
-@Getter
 @Entity
 @Table(name = "users")
 public class User {
@@ -78,7 +76,6 @@ public class User {
         this.dateOfBirth = dateOfBirth;
         this.role = role;
     }
-    
 
     @PrePersist
     void onCreate() {
@@ -90,6 +87,50 @@ public class User {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public LocalDate getDateOfBirth() {
+        return dateOfBirth;
+    }
+
+    public String getEPinHash() {
+        return ePinHash;
+    }
+
+    public UserRole getRole() {
+        return role;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
     }
 
     public void updateProfile(String firstName, String lastName) {

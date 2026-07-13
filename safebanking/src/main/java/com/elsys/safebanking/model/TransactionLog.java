@@ -1,12 +1,8 @@
 package com.elsys.safebanking.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
 import java.time.Instant;
 
-@Getter
-@Setter
 @Entity
 @Table(name = "transaction_logs")
 public class TransactionLog {
@@ -27,4 +23,36 @@ public class TransactionLog {
     private Instant timeStamp;
 
     protected TransactionLog() {}
+
+    public Long getLogId() {
+        return logId;
+    }
+
+    public void setLogId(Long logId) {
+        this.logId = logId;
+    }
+
+    public BankingTransaction getTransaction() {
+        return transaction;
+    }
+
+    public void setTransaction(BankingTransaction transaction) {
+        this.transaction = transaction;
+    }
+
+    public String getLogEntryText() {
+        return logEntryText;
+    }
+
+    public void setLogEntryText(String logEntryText) {
+        this.logEntryText = logEntryText;
+    }
+
+    public Instant getTimeStamp() {
+        return timeStamp;
+    }
+
+    public void setTimeStamp(Instant timeStamp) {
+        this.timeStamp = timeStamp;
+    }
 }

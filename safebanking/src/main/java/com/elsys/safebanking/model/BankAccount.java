@@ -8,9 +8,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
-import lombok.Getter;
 
-@Getter
 @Entity
 @Table(name = "bank_accounts")
 public class BankAccount {
@@ -41,6 +39,26 @@ public class BankAccount {
         this.balance = BigDecimal.ZERO;
         this.currency = currency;
         this.owner = owner;
+    }
+
+    public String getIban() {
+        return iban;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public BigDecimal getBalance() {
+        return balance;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public User getOwner() {
+        return owner;
     }
 
     public void updateBalance(BigDecimal balance) {
