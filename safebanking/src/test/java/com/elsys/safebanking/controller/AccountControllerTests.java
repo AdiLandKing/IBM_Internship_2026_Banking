@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.elsys.safebanking.model.AccountStatus;
+import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.repository.BankAccountRepository;
 import com.elsys.safebanking.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -63,6 +65,7 @@ class AccountControllerTests {
                 .andExpect(jsonPath("$.iban", matchesPattern(IBAN_PATTERN)))
                 .andExpect(jsonPath("$.name").value("Main Account"))
                 .andExpect(jsonPath("$.currency").value("BGN"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.balance").value(0));
     }
 
@@ -88,7 +91,21 @@ class AccountControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].iban").value(clientIban))
                 .andExpect(jsonPath("$[0].name").value("Main Account"))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"))
                 .andExpect(jsonPath("$[1]").doesNotExist());
+    }
+
+    @Test
+    void accountsListShowsBlockedStatus() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.BLOCKED);
+
+        mockMvc.perform(get("/api/accounts")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].iban").value(iban))
+                .andExpect(jsonPath("$[0].status").value("BLOCKED"));
     }
 
     @Test
@@ -157,6 +174,85 @@ class AccountControllerTests {
     }
 
     @Test
+    void userCanSuspendOwnActiveAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(iban))
+                .andExpect(jsonPath("$.status").value("SUSPENDED"));
+    }
+
+    @Test
+    void userCannotSuspendAccountThatIsNotActive() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.SUSPENDED);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Account State Conflict"));
+    }
+
+    @Test
+    void userCanActivateOwnSuspendedAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.SUSPENDED);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(iban))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void userCannotActivateAccountThatIsAlreadyActive() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Account State Conflict"));
+    }
+
+    @Test
+    void userCannotSelfActivateBlockedAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.BLOCKED);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    void userCannotSuspendOrActivateAnotherUsersAccount() throws Exception {
+        String clientToken = register("client@example.com");
+        String otherToken = register("other@example.com");
+        String clientIban = createAccount(clientToken, "Main Account", "BGN");
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", clientIban)
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+
+        setAccountStatus(clientIban, AccountStatus.SUSPENDED);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", clientIban)
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
     void invalidAccountNameAndCurrencyReturnValidationErrors() throws Exception {
         String token = register("client@example.com");
 
@@ -211,6 +307,16 @@ class AccountControllerTests {
 
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString());
         return response.get("iban").asText();
+    }
+
+    private void setAccountStatus(String iban, AccountStatus status) {
+        BankAccount account = bankAccountRepository.findById(iban).orElseThrow();
+        switch (status) {
+            case ACTIVE -> account.activate();
+            case SUSPENDED -> account.suspend();
+            case BLOCKED -> account.block();
+        }
+        bankAccountRepository.saveAndFlush(account);
     }
 
     private String json(Object value) throws Exception {

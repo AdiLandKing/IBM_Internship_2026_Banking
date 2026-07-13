@@ -1,5 +1,6 @@
 package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.dto.BankAccountResponse;
 import com.elsys.safebanking.dto.ChangeEPinRequest;
 import com.elsys.safebanking.dto.EPinStatusResponse;
 import com.elsys.safebanking.dto.SetEPinRequest;
@@ -7,11 +8,13 @@ import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
 import com.elsys.safebanking.dto.VerifyEPinRequest;
 import com.elsys.safebanking.dto.VerifyEPinResponse;
+import com.elsys.safebanking.service.AccountService;
 import com.elsys.safebanking.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,9 +26,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
+    private final AccountService accountService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, AccountService accountService) {
         this.userService = userService;
+        this.accountService = accountService;
     }
 
     @GetMapping("/profile")
@@ -71,6 +76,16 @@ public class UserController {
             HttpServletRequest servletRequest
     ) {
         return userService.verifyEPin(principal.getName(), request, clientIp(servletRequest));
+    }
+
+    @PutMapping("/accounts/{iban}/suspend")
+    public BankAccountResponse suspendAccount(Principal principal, @PathVariable String iban) {
+        return accountService.suspendOwnAccount(principal.getName(), iban);
+    }
+
+    @PutMapping("/accounts/{iban}/activate")
+    public BankAccountResponse activateAccount(Principal principal, @PathVariable String iban) {
+        return accountService.activateOwnAccount(principal.getName(), iban);
     }
 
     private String clientIp(HttpServletRequest request) {

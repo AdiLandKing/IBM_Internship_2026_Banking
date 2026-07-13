@@ -68,6 +68,18 @@ public class BankAccount {
         this.name = requireAccountName(name);
     }
 
+    public void suspend() {
+        status = AccountStatus.SUSPENDED;
+    }
+
+    public void activate() {
+        status = AccountStatus.ACTIVE;
+    }
+
+    public void block() {
+        status = AccountStatus.BLOCKED;
+    }
+
     @PostLoad
     private void hydrateLegacyFields() {
         if (isBlank(name) && !isBlank(legacyAccountName)) {
