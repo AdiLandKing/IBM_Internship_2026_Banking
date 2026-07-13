@@ -15,15 +15,40 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
+/**
+ * Executes money transfers between bank accounts, applying live FX conversion
+ * when the source and destination accounts hold different currencies.
+ *
+ * <p><strong>Conversion formula:</strong>
+ * <pre>
+ *   debitedAmount  = request.amount()                        (source-currency)
+ *   rate           = ExchangeRateService.getRate(src, dst)   (dst / src)
+ *   creditedAmount = debitedAmount × rate                    (destination-currency)
+ * </pre>
+ * Both amounts are rounded to {@value #BALANCE_SCALE} decimal places using
+ * {@link RoundingMode#HALF_EVEN} (banker's rounding) before any balance mutation.
+ *
+ * <p><strong>FX reliability:</strong> the Frankfurter lookup is guarded by a
+ * 5-minute in-memory cache (configurable via {@code app.fx.cache-ttl-seconds}).
+ * If the external API is unreachable the call throws
+ * {@link com.elsys.safebanking.exception.ExchangeRateUnavailableException}, which
+ * propagates out of this transaction and is mapped to {@code 503 Service Unavailable}
+ * by {@link com.elsys.safebanking.exception.ApiExceptionHandler}.
+ */
 @Service
 @RequiredArgsConstructor
 public class TransferServiceImpl implements TransferService {
 
-    private final BankAccountRepository bankAccountRepository;
+    /** Decimal places used for all balance arithmetic and persisted amounts. */
+    static final int BALANCE_SCALE = 2;
+
+    private final BankAccountRepository       bankAccountRepository;
     private final BankingTransactionRepository transactionRepository;
-    private final TransactionLogRepository transactionLogRepository;
+    private final TransactionLogRepository     transactionLogRepository;
+    private final ExchangeRateService          exchangeRateService;
 
     @Override
     @Transactional
@@ -60,39 +85,70 @@ public class TransferServiceImpl implements TransferService {
             throw new IllegalStateException("Destination account is not active");
         }
 
-        // 6. Check Balance
-        if (sourceAccount.getBalance().compareTo(request.amount()) < 0) {
-            return createFailedTransaction(sourceAccount, destinationAccount, request.amount(), request.reason(), "Insufficient funds");
+        // 6. Fetch FX rate (throws ExchangeRateUnavailableException → 503 if unavailable)
+        String srcCurrency = sourceAccount.getCurrency();
+        String dstCurrency = destinationAccount.getCurrency();
+        BigDecimal fxRate = exchangeRateService.getRate(srcCurrency, dstCurrency);
+
+        BigDecimal debitedAmount  = request.amount().setScale(BALANCE_SCALE, RoundingMode.HALF_EVEN);
+        BigDecimal creditedAmount = debitedAmount.multiply(fxRate).setScale(BALANCE_SCALE, RoundingMode.HALF_EVEN);
+
+        // 7. Check Balance
+        if (sourceAccount.getBalance().compareTo(debitedAmount) < 0) {
+            return createFailedTransaction(
+                    sourceAccount, destinationAccount,
+                    debitedAmount, creditedAmount,
+                    srcCurrency, dstCurrency, fxRate,
+                    request.reason(), "Insufficient funds");
         }
 
-        // 7. Debit and Credit
-        sourceAccount.updateBalance(sourceAccount.getBalance().subtract(request.amount()));
-        destinationAccount.updateBalance(destinationAccount.getBalance().add(request.amount()));
+        // 8. Debit source (source currency), credit destination (destination currency)
+        sourceAccount.updateBalance(sourceAccount.getBalance().subtract(debitedAmount));
+        destinationAccount.updateBalance(destinationAccount.getBalance().add(creditedAmount));
 
         bankAccountRepository.save(sourceAccount);
         bankAccountRepository.save(destinationAccount);
 
-        // 8. Persist Success
-        BankingTransaction tx = saveTransaction(sourceAccount, destinationAccount, request.amount(), request.reason(), TransactionStatus.COMPLETED);
+        // 9. Persist Success
+        BankingTransaction tx = saveTransaction(
+                sourceAccount, destinationAccount,
+                debitedAmount, creditedAmount,
+                srcCurrency, dstCurrency, fxRate,
+                request.reason(), TransactionStatus.COMPLETED);
         saveLog(tx, "Transfer completed successfully");
 
         return new TransferResponse(tx.getTranId(), TransactionStatus.COMPLETED);
     }
 
-    private TransferResponse createFailedTransaction(BankAccount source, BankAccount dest, BigDecimal amount, String reason, String failureDetail) {
-        BankingTransaction tx = saveTransaction(source, dest, amount, reason, TransactionStatus.FAILED);
+    private TransferResponse createFailedTransaction(
+            BankAccount source, BankAccount dest,
+            BigDecimal debitedAmount, BigDecimal creditedAmount,
+            String srcCurrency, String dstCurrency, BigDecimal fxRate,
+            String reason, String failureDetail) {
+        BankingTransaction tx = saveTransaction(
+                source, dest,
+                debitedAmount, creditedAmount,
+                srcCurrency, dstCurrency, fxRate,
+                reason, TransactionStatus.FAILED);
         saveLog(tx, "Transfer failed: " + failureDetail);
         return new TransferResponse(tx.getTranId(), TransactionStatus.FAILED);
     }
 
-    private BankingTransaction saveTransaction(BankAccount source, BankAccount dest, BigDecimal amount, String reason, TransactionStatus status) {
+    private BankingTransaction saveTransaction(
+            BankAccount source, BankAccount dest,
+            BigDecimal debitedAmount, BigDecimal creditedAmount,
+            String srcCurrency, String dstCurrency, BigDecimal fxRate,
+            String reason, TransactionStatus status) {
         BankingTransaction tx = BankingTransaction.builder()
                 .sourceAccount(source)
                 .destinationAccount(dest)
-                .amount(amount)
+                .amount(debitedAmount)
+                .creditedAmount(creditedAmount)
+                .sourceCurrency(srcCurrency)
+                .destinationCurrency(dstCurrency)
                 .reason(reason)
                 .timeStamp(Instant.now())
-                .exchangeRateUsed(BigDecimal.ONE)
+                .exchangeRateUsed(fxRate)
                 .status(status)
                 .build();
         return transactionRepository.save(tx);
