@@ -5,15 +5,11 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-
 import java.math.BigDecimal;
-
 import lombok.Getter;
 
 @Getter
@@ -22,15 +18,11 @@ import lombok.Getter;
 public class BankAccount {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "account_id")
-    private Integer accountId;
-
-    @Column(name = "account_name", nullable = false)
-    private String accountName;
-
-    @Column(nullable = false, unique = true, length = 34)
+    @Column(nullable = false, unique = true, length = 18)
     private String iban;
+
+    @Column(name = "account_name", nullable = false, length = 80)
+    private String name;
 
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal balance;
@@ -49,10 +41,10 @@ public class BankAccount {
     protected BankAccount() {
     }
 
-    public BankAccount(String accountName, String iban, BigDecimal balance, String currency, User owner) {
-        this.accountName = accountName;
+    public BankAccount(String iban, String name, String currency, User owner) {
         this.iban = iban;
-        this.balance = balance;
+        this.name = name;
+        this.balance = BigDecimal.ZERO;
         this.currency = currency;
         this.owner = owner;
     }
@@ -61,7 +53,7 @@ public class BankAccount {
         this.balance = balance;
     }
 
-    public void updateAccountName(String accountName) {
-        this.accountName = accountName;
+    public void updateName(String name) {
+        this.name = name;
     }
 }
