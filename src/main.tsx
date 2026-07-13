@@ -68,15 +68,19 @@ type ClientAccount = {
   iban: string;
   balance: number;
   currency: string;
+  status: AccountStatus;
   opened: string;
   branch: string;
 };
+
+type AccountStatus = 'ACTIVE' | 'SUSPENDED' | 'BLOCKED';
 
 type AccountResponse = {
   iban: string;
   name: string;
   balance: number | string;
   currency: string;
+  status: AccountStatus;
 };
 
 type RecipientAccountResponse = {
@@ -415,9 +419,21 @@ function accountResponseToClientAccount(account: AccountResponse): ClientAccount
     iban: account.iban,
     balance: Number(account.balance),
     currency: account.currency,
+    status: account.status,
     opened: 'Not available',
     branch: 'Sofia Private Office',
   };
+}
+
+function getAccountStatusActionLabel(
+  isUpdating: boolean,
+  isBlocked: boolean,
+  isSuspended: boolean,
+) {
+  if (isUpdating) return 'Updating...';
+  if (isBlocked) return 'Blocked by admin';
+  if (isSuspended) return 'Unlock account';
+  return 'Lock account';
 }
 
 async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]> {
@@ -482,6 +498,26 @@ async function updateBankAccountName(
 
   if (!response.ok) {
     throw new Error(await getApiErrorMessage(response, 'Unable to update account name.'));
+  }
+
+  return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+async function updateBankAccountStatus(
+  authSession: AuthSession,
+  iban: string,
+  action: 'suspend' | 'activate',
+): Promise<ClientAccount> {
+  const response = await fetch(`${API_BASE_URL}/api/users/accounts/${encodeURIComponent(iban)}/${action}`, {
+    method: 'PUT',
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(
+      response,
+      action === 'suspend' ? 'Unable to lock account.' : 'Unable to unlock account.',
+    ));
   }
 
   return accountResponseToClientAccount(await response.json() as AccountResponse);
@@ -849,13 +885,20 @@ function AccountsPage({
   const [editingName, setEditingName] = React.useState(false);
   const [draftName, setDraftName] = React.useState('');
   const [isSavingName, setIsSavingName] = React.useState(false);
+  const [isUpdatingAccountStatus, setIsUpdatingAccountStatus] = React.useState(false);
   const [isIbanVisible, setIsIbanVisible] = React.useState(false);
   const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
-  const [lockedAccountIds, setLockedAccountIds] = React.useState<Set<string>>(() => new Set());
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
   const selectedName = selectedAccount?.name ?? '';
-  const isSelectedAccountLocked = selectedAccount ? lockedAccountIds.has(selectedAccount.id) : false;
+  const isSelectedAccountActive = selectedAccount?.status === 'ACTIVE';
+  const isSelectedAccountSuspended = selectedAccount?.status === 'SUSPENDED';
+  const isSelectedAccountBlocked = selectedAccount?.status === 'BLOCKED';
+  const selectedAccountStatusActionLabel = getAccountStatusActionLabel(
+    isUpdatingAccountStatus,
+    isSelectedAccountBlocked,
+    isSelectedAccountSuspended,
+  );
   const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
 
   const loadAccounts = React.useCallback(async (preferredAccountId?: string) => {
@@ -960,17 +1003,28 @@ function AccountsPage({
     }
   }
 
-  function toggleSelectedAccountLock() {
+  async function toggleSelectedAccountLock() {
     if (!selectedAccount) return;
-    setLockedAccountIds((current) => {
-      const next = new Set(current);
-      if (next.has(selectedAccount.id)) {
-        next.delete(selectedAccount.id);
-      } else {
-        next.add(selectedAccount.id);
-      }
-      return next;
-    });
+    if (isSelectedAccountBlocked) {
+      setAccountActionError('Blocked accounts cannot be unlocked by the account owner.');
+      return;
+    }
+
+    const action = isSelectedAccountSuspended ? 'activate' : 'suspend';
+    setIsUpdatingAccountStatus(true);
+    setAccountActionError('');
+    setAccountSuccess('');
+    try {
+      const updatedAccount = await updateBankAccountStatus(authSession, selectedAccount.iban, action);
+      setAccounts((current) => current.map((account) => (
+        account.id === updatedAccount.id ? updatedAccount : account
+      )));
+      setAccountSuccess(action === 'suspend' ? 'Account locked.' : 'Account unlocked.');
+    } catch (statusError) {
+      setAccountActionError(statusError instanceof Error ? statusError.message : 'Unable to update account status.');
+    } finally {
+      setIsUpdatingAccountStatus(false);
+    }
   }
 
   return (
@@ -1072,7 +1126,7 @@ function AccountsPage({
               <div className="divide-y divide-[rgb(var(--line))]">
                 {accounts.map((account) => {
                   const isSelected = account.id === selectedAccount.id;
-                  const isLocked = lockedAccountIds.has(account.id);
+                  const isLocked = account.status !== 'ACTIVE';
                   const AccountIcon = isLocked ? LockKeyhole : CreditCard;
                   return (
                     <button
@@ -1097,7 +1151,14 @@ function AccountsPage({
                         />
                       </div>
                       <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
-                      <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                        {account.status !== 'ACTIVE' && (
+                          <span className="rounded-full border border-[rgb(var(--line))] px-2 py-0.5 text-[0.62rem] font-extrabold uppercase tracking-[0.14em] text-[rgb(var(--gold))]">
+                            {account.status}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -1177,14 +1238,20 @@ function AccountsPage({
                 </div>
               </div>
 
-              <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
+              <dl className="grid overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] sm:grid-cols-2">
                 {[
                   ['Currency', selectedAccount.currency],
+                  ['Status', selectedAccount.status],
                   ['Account holder', 'Primary client'],
                   ['Opened', selectedAccount.opened],
                   ['Servicing branch', selectedAccount.branch],
-                ].map(([label, value]) => (
-                  <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
+                ].map(([label, value], index) => (
+                  <div
+                    key={label}
+                    className={`bg-[rgb(var(--page-bg))] px-5 py-4 ${
+                      index < 3 ? 'border-b border-[rgb(var(--line))]' : ''
+                    } ${index % 2 === 0 ? 'sm:border-r sm:border-[rgb(var(--line))]' : ''}`}
+                  >
                     <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
                     <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
                   </div>
@@ -1195,11 +1262,11 @@ function AccountsPage({
                 <button
                   type="button"
                   onClick={showTransactions}
-                  disabled={isSelectedAccountLocked}
+                  disabled={!isSelectedAccountActive}
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
                 >
                   <Zap size={16} strokeWidth={1.8} />
-                  {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
+                  {isSelectedAccountActive ? 'Transfer from this account' : 'Account locked'}
                 </button>
                 <button
                   type="button"
@@ -1211,13 +1278,14 @@ function AccountsPage({
                 </button>
                 <button
                   type="button"
-                  onClick={toggleSelectedAccountLock}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                  onClick={() => void toggleSelectedAccountLock()}
+                  disabled={isUpdatingAccountStatus || isSelectedAccountBlocked}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSelectedAccountLocked
+                  {isSelectedAccountSuspended
                     ? <Unlock size={16} strokeWidth={1.8} />
                     : <LockKeyhole size={16} strokeWidth={1.8} />}
-                  {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
+                  {selectedAccountStatusActionLabel}
                 </button>
               </div>
             </article>
