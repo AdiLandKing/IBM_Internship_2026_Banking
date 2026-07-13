@@ -5,19 +5,13 @@ import java.util.List;
 import java.util.Optional;
 import com.elsys.safebanking.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.List;
-import java.util.Optional;
 
 public interface BankAccountRepository extends JpaRepository<BankAccount, String> {
-    
     Optional<BankAccount> findByIban(String iban);
     long countByOwner(User owner);
     List<BankAccount> findByOwnerId(Long ownerId);
-
-    List<BankAccount> findByOwnerId(Long userId);
     boolean existsByIban(String iban);
     List<BankAccount> findByOwnerIdOrderByIbanAsc(Long ownerId);
-    Optional<BankAccount> findByIban(String iban);
     Optional<BankAccount> findByIbanAndOwnerId(String iban, Long ownerId);
     void deleteByIban(String iban);
 }
