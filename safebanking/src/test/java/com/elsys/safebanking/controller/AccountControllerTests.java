@@ -157,6 +157,60 @@ class AccountControllerTests {
     }
 
     @Test
+    void authenticatedUserCanSuspendOwnActiveAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(iban))
+                .andExpect(jsonPath("$.status").value("SUSPENDED"));
+    }
+
+    @Test
+    void authenticatedUserCanActivateOwnSuspendedAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(iban))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void authenticatedUserCannotActivateBlockedAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        var account = bankAccountRepository.findById(iban).orElseThrow();
+        account.block();
+        bankAccountRepository.saveAndFlush(account);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Account Blocked"));
+    }
+
+    @Test
+    void authenticatedUserCannotSuspendAnotherUsersAccount() throws Exception {
+        String clientToken = register("client@example.com");
+        String otherToken = register("other@example.com");
+        String otherIban = createAccount(otherToken, "Other Account", "EUR");
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", otherIban)
+                        .header("Authorization", "Bearer " + clientToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
     void invalidAccountNameAndCurrencyReturnValidationErrors() throws Exception {
         String token = register("client@example.com");
 

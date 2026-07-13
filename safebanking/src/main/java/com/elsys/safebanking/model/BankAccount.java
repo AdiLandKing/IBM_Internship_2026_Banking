@@ -121,4 +121,12 @@ public class BankAccount {
     public void unblock() {
         this.status = AccountStatus.ACTIVE;
     }
+
+    public void suspend() {
+        this.status = AccountStatus.SUSPENDED;
+    }
+
+    public void activate() {
+        this.status = AccountStatus.ACTIVE;
+    }
 }
