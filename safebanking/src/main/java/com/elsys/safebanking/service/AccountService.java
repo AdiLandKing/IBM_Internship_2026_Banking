@@ -2,6 +2,7 @@ package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.BankAccountResponse;
 import com.elsys.safebanking.dto.CreateBankAccountRequest;
+import com.elsys.safebanking.dto.RecipientAccountResponse;
 import com.elsys.safebanking.dto.UpdateBankAccountNameRequest;
 import com.elsys.safebanking.exception.AccountNotFoundException;
 import com.elsys.safebanking.model.BankAccount;
@@ -62,6 +63,13 @@ public class AccountService {
     public BankAccountResponse getAccountByIban(String email, String iban) {
         User owner = userService.getByEmail(email);
         return BankAccountResponse.from(getOwnedAccount(owner, iban));
+    }
+
+    @Transactional(readOnly = true)
+    public RecipientAccountResponse getRecipientAccount(String iban) {
+        return bankAccountRepository.findById(iban.trim().toUpperCase())
+                .map(RecipientAccountResponse::from)
+                .orElseThrow(() -> new AccountNotFoundException(iban));
     }
 
     @Transactional

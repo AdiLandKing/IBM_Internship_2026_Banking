@@ -79,6 +79,11 @@ type AccountResponse = {
   currency: string;
 };
 
+type RecipientAccountResponse = {
+  iban: string;
+  currency: string;
+};
+
 type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
 
 const ACCOUNT_CURRENCIES: AccountCurrency[] = ['BGN', 'EUR', 'USD', 'GBP'];
@@ -426,6 +431,18 @@ async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]>
 
   const accounts = await response.json() as AccountResponse[];
   return accounts.map(accountResponseToClientAccount);
+}
+
+async function lookupRecipientAccount(authSession: AuthSession, iban: string): Promise<RecipientAccountResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts/lookup?iban=${encodeURIComponent(iban)}`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Recipient IBAN was not found.'));
+  }
+
+  return response.json();
 }
 
 async function createBankAccount(
@@ -1731,24 +1748,33 @@ type TransactionsPageProps = Readonly<{
   showHome: () => void;
 }>;
 
-function getTransferValidationErrors(draft: TransferDraft, accounts: ClientAccount[]): TransferValidationErrors {
+function getTransferValidationErrors(
+  draft: TransferDraft,
+  accounts: ClientAccount[],
+  recipientAccount: RecipientAccountResponse | null,
+): TransferValidationErrors {
   const validationErrors: TransferValidationErrors = {};
   const amount = Number(draft.amount);
+  const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
 
   if (!draft.sourceAccountIban) {
     validationErrors.sourceAccountIban = 'Choose a source account.';
-  } else if (!accounts.some((account) => account.iban === draft.sourceAccountIban)) {
+  } else if (!sourceAccount) {
     validationErrors.sourceAccountIban = 'Choose one of your available accounts.';
   }
 
   if (!draft.destinationAccountIban.trim()) {
     validationErrors.destinationAccountIban = 'Recipient IBAN is required.';
+  } else if (!recipientAccount || recipientAccount.iban !== draft.destinationAccountIban.trim().toUpperCase()) {
+    validationErrors.destinationAccountIban = 'Enter a valid recipient IBAN from SAFE Bank.';
   }
 
   if (!draft.amount.trim()) {
     validationErrors.amount = 'Amount is required.';
   } else if (!Number.isFinite(amount) || amount <= 0) {
     validationErrors.amount = 'Amount must be greater than zero.';
+  } else if (sourceAccount && recipientAccount && sourceAccount.currency === recipientAccount.currency && amount > sourceAccount.balance) {
+    validationErrors.amount = 'Insufficient funds in the selected account.';
   }
 
   if (!draft.reason.trim()) {
@@ -1764,6 +1790,9 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
   const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
   const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(true);
   const [accountsError, setAccountsError] = React.useState('');
+  const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
+  const [recipientLookupError, setRecipientLookupError] = React.useState('');
+  const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
   const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
   const [ePin, setEPin] = React.useState('');
   const [ePinError, setEPinError] = React.useState('');
@@ -1802,9 +1831,17 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
   const formattedTransferAmount = draft.amount
     ? formatCurrencyAmount(Number(draft.amount), draft.currency)
     : formatCurrencyAmount(0, draft.currency);
+  const canCheckSourceBalance = Boolean(sourceAccount && recipientAccount && sourceAccount.currency === recipientAccount.currency);
+  const currencyCheckLabel = recipientAccount
+    ? `Recipient currency: ${recipientAccount.currency}${canCheckSourceBalance ? '' : ' · Balance check skipped for different currencies'}`
+    : '';
 
   function updateDraft(field: keyof TransferDraft, value: string) {
     setTransferNotice('');
+    if (field === 'destinationAccountIban') {
+      setRecipientAccount(null);
+      setRecipientLookupError('');
+    }
     setFieldErrors((currentErrors) => {
       const nextErrors = { ...currentErrors };
       delete nextErrors[field];
@@ -1818,16 +1855,48 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       return {
         ...currentDraft,
         sourceAccountIban: value,
-        currency: nextAccount?.currency ?? currentDraft.currency,
+        currency: recipientAccount?.currency ?? nextAccount?.currency ?? currentDraft.currency,
       };
     });
+  }
+
+  async function checkRecipientIban(iban = draft.destinationAccountIban): Promise<RecipientAccountResponse | null> {
+    const normalizedIban = iban.trim().toUpperCase();
+    setRecipientLookupError('');
+    setRecipientAccount(null);
+
+    if (!normalizedIban) {
+      return null;
+    }
+
+    setIsCheckingRecipient(true);
+    try {
+      const account = await lookupRecipientAccount(authSession, normalizedIban);
+      setRecipientAccount(account);
+      setDraft((currentDraft) => ({
+        ...currentDraft,
+        destinationAccountIban: account.iban,
+        currency: account.currency,
+      }));
+      return account;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Recipient IBAN was not found.';
+      setRecipientLookupError(message);
+      return null;
+    } finally {
+      setIsCheckingRecipient(false);
+    }
   }
 
   async function reviewTransfer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTransferNotice('');
     setEPinError('');
-    const validationErrors = getTransferValidationErrors(draft, accounts);
+    const normalizedDestinationIban = draft.destinationAccountIban.trim().toUpperCase();
+    const verifiedRecipient = recipientAccount?.iban === normalizedDestinationIban
+      ? recipientAccount
+      : await checkRecipientIban(normalizedDestinationIban);
+    const validationErrors = getTransferValidationErrors(draft, accounts, verifiedRecipient);
     setFieldErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
 
@@ -1876,6 +1945,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
     ['From', sourceAccount ? `${sourceAccount.name} · ${maskIban(sourceAccount.iban)}` : 'Not selected'],
     ['Recipient', draft.destinationAccountIban],
     ['Amount', formattedTransferAmount],
+    ['Currency', draft.currency],
     ['Reason', draft.reason],
   ];
 
@@ -1965,12 +2035,17 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <input
                   value={draft.destinationAccountIban}
                   onChange={(event) => updateDraft('destinationAccountIban', event.target.value.toUpperCase())}
+                  onBlur={() => void checkRecipientIban()}
                   className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
-                    fieldErrors.destinationAccountIban ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    fieldErrors.destinationAccountIban || recipientLookupError ? 'border-red-500' : 'border-[rgb(var(--line))]'
                   }`}
                   placeholder="IBAN"
                 />
-                {fieldErrors.destinationAccountIban && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.destinationAccountIban}</p>}
+                {isCheckingRecipient && <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">Checking recipient IBAN...</p>}
+                {recipientAccount && !isCheckingRecipient && <p className="mt-2 text-xs font-bold text-emerald-500">{currencyCheckLabel}</p>}
+                {(fieldErrors.destinationAccountIban || recipientLookupError) && (
+                  <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.destinationAccountIban ?? recipientLookupError}</p>
+                )}
               </label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label>
@@ -1993,6 +2068,9 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                     readOnly
                     className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))] outline-none"
                   />
+                  <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">
+                    Set automatically from the recipient account.
+                  </p>
                 </label>
               </div>
               <label className="flex flex-1 flex-col">
@@ -2012,9 +2090,9 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
               <button
                 className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                 type="submit"
-                disabled={isLoadingAccounts || accounts.length === 0}
+                disabled={isLoadingAccounts || isCheckingRecipient || accounts.length === 0}
               >
-                Review Transfer
+                {isCheckingRecipient ? 'Checking Recipient...' : 'Review Transfer'}
               </button>
             </form>
           </div>
