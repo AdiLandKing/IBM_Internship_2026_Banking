@@ -13,6 +13,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import lombok.Getter;
 
 @Getter
@@ -47,6 +48,12 @@ public class BankAccount {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User owner;
+
+    @Column(updatable = false)
+    private Instant createdAt;
+
+    @Column
+    private Instant updatedAt;
 
     protected BankAccount() {
     }
@@ -91,7 +98,24 @@ public class BankAccount {
     }
 
     @PrePersist
+    private void onCreate() {
+        validateRequiredFields();
+        Instant now = Instant.now();
+        if (createdAt == null) {
+            createdAt = now;
+        }
+        updatedAt = now;
+    }
+
     @PreUpdate
+    private void onUpdate() {
+        validateRequiredFields();
+        if (createdAt == null) {
+            createdAt = Instant.now();
+        }
+        updatedAt = Instant.now();
+    }
+
     private void validateRequiredFields() {
         name = requireAccountName(name);
         if (status == null) {

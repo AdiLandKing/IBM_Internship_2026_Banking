@@ -81,6 +81,7 @@ type AccountResponse = {
   balance: number | string;
   currency: string;
   status: AccountStatus;
+  createdAt: string | null;
 };
 
 type RecipientAccountResponse = {
@@ -420,7 +421,7 @@ function accountResponseToClientAccount(account: AccountResponse): ClientAccount
     balance: Number(account.balance),
     currency: account.currency,
     status: account.status,
-    opened: 'Not available',
+    opened: formatProfileDate(account.createdAt, 'Not available'),
     branch: 'Sofia Private Office',
   };
 }

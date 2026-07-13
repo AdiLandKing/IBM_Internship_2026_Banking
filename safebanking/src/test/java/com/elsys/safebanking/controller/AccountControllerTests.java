@@ -66,6 +66,7 @@ class AccountControllerTests {
                 .andExpect(jsonPath("$.name").value("Main Account"))
                 .andExpect(jsonPath("$.currency").value("BGN"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.createdAt").isNotEmpty())
                 .andExpect(jsonPath("$.balance").value(0));
     }
 
@@ -92,6 +93,7 @@ class AccountControllerTests {
                 .andExpect(jsonPath("$[0].iban").value(clientIban))
                 .andExpect(jsonPath("$[0].name").value("Main Account"))
                 .andExpect(jsonPath("$[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$[0].createdAt").isNotEmpty())
                 .andExpect(jsonPath("$[1]").doesNotExist());
     }
 
@@ -117,7 +119,8 @@ class AccountControllerTests {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.iban").value(iban))
-                .andExpect(jsonPath("$.name").value("Main Account"));
+                .andExpect(jsonPath("$.name").value("Main Account"))
+                .andExpect(jsonPath("$.createdAt").isNotEmpty());
     }
 
     @Test
