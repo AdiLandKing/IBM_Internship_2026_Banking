@@ -1,5 +1,6 @@
 package com.elsys.safebanking.dto;
 
+import com.elsys.safebanking.validation.ValidEPin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -27,6 +28,9 @@ public record RegisterRequest(
 
         @NotNull(message = "Date of birth is required")
         @Past(message = "Date of birth must be in the past")
-        LocalDate dateOfBirth
+        LocalDate dateOfBirth,
+
+        @ValidEPin(allowBlank = true)
+        String ePin
 ) {
 }

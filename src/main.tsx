@@ -18,12 +18,6 @@ const recentTransactions = [
   { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
 ];
 
-const holdings = [
-  { name: 'Global Equity Mandate', category: 'Equities', value: '$2.51M', allocation: '52%', change: '+3.1%' },
-  { name: 'Municipal Income Ladder', category: 'Fixed Income', value: '$1.35M', allocation: '28%', change: '+0.8%' },
-  { name: 'Private Alternatives Fund', category: 'Alternatives', value: '$964K', allocation: '20%', change: '+1.6%' },
-];
-
 const adminMetrics = [
   { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
   { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
@@ -78,38 +72,40 @@ type ClientAccount = {
   branch: string;
 };
 
-const clientAccounts: ClientAccount[] = [
-  {
-    id: 'private-checking',
-    name: 'Private Checking',
-    type: 'Everyday account',
-    iban: 'BG80SAFE18470000394401',
-    balance: 128420.86,
-    currency: 'USD',
-    opened: 'March 14, 2021',
-    branch: 'Sofia Private Office',
-  },
-  {
-    id: 'wealth-reserve',
-    name: 'Wealth Reserve',
-    type: 'Savings account',
-    iban: 'BG31SAFE18470000184702',
-    balance: 740000,
-    currency: 'USD',
-    opened: 'September 02, 2018',
-    branch: 'Sofia Private Office',
-  },
-  {
-    id: 'travel-fx',
-    name: 'Travel & FX',
-    type: 'Foreign currency account',
-    iban: 'BG59SAFE18470000621803',
-    balance: 42890.4,
-    currency: 'EUR',
-    opened: 'January 18, 2024',
-    branch: 'International Banking',
-  },
-];
+type AccountResponse = {
+  iban: string;
+  name: string;
+  balance: number | string;
+  currency: string;
+};
+
+type RecipientAccountResponse = {
+  iban: string;
+  currency: string;
+};
+
+type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
+
+const ACCOUNT_CURRENCIES: AccountCurrency[] = ['BGN', 'EUR', 'USD', 'GBP'];
+
+type PortfolioHolding = {
+  name: string;
+  category: string;
+  value: string;
+  allocation: string;
+  allocationWidth: string;
+  status: string;
+};
+
+type TransferDraft = {
+  sourceAccountIban: string;
+  destinationAccountIban: string;
+  amount: string;
+  currency: string;
+  reason: string;
+};
+
+type TransferValidationErrors = Partial<Record<keyof TransferDraft, string>>;
 
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
@@ -187,15 +183,23 @@ type AuthSession = {
   user: UserProfile;
 };
 
+type AuthenticationResult = AuthSession & {
+  oneTimeEPin: string | null;
+};
+
 type ApiErrorResponse = {
   message?: string;
   fieldErrors?: Record<string, string>;
 };
 
-type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'password' | 'confirmPassword', string>>;
+type AuthFieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'dateOfBirth' | 'ePin' | 'password' | 'confirmPassword', string>>;
 
 const AUTH_RULE_MESSAGE = 'Password must be at least 10 characters and include 1 uppercase letter, 1 number, and 1 special character.';
 const REGISTRATION_AUTH_PATTERN = String.raw`^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,}$`;
+const EPIN_LENGTH = 6;
+const EPIN_PATTERN = new RegExp(String.raw`^\d{${EPIN_LENGTH}}$`);
+const EPIN_INPUT_PATTERN = `[0-9]{${EPIN_LENGTH}}`;
+const EPIN_VALIDATION_MESSAGE = `E-PIN must contain exactly ${EPIN_LENGTH} digits.`;
 const AUTH_INPUT_AUTOCOMPLETE = {
   loginEntry: 'current-password',
   newEntry: 'new-password',
@@ -213,6 +217,10 @@ const AUTH_FIELD_PLACEHOLDERS = {
 
 function hasInteger(value: string) {
   return /\d/.test(value);
+}
+
+function sanitizeEPin(value: string) {
+  return value.replace(/\D/g, '').slice(0, EPIN_LENGTH);
 }
 
 function isValidRegistrationPassword(password: string) {
@@ -264,6 +272,7 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
   const password = getFormString(formData, 'password');
   const confirmPassword = getFormString(formData, 'confirmPassword');
   const dateOfBirth = getFormString(formData, 'dateOfBirth');
+  const ePin = getFormString(formData, 'ePin', true);
   const validationErrors: AuthFieldErrors = {};
 
   if (!email) {
@@ -288,6 +297,10 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
     validationErrors.dateOfBirth = 'Enter a valid date of birth.';
   }
 
+  if (ePin && !EPIN_PATTERN.test(ePin)) {
+    validationErrors.ePin = EPIN_VALIDATION_MESSAGE;
+  }
+
   if (!isValidRegistrationPassword(password)) {
     validationErrors.password = AUTH_RULE_MESSAGE;
   }
@@ -301,7 +314,7 @@ function getRegistrationValidationErrors(formData: FormData): AuthFieldErrors {
   return validationErrors;
 }
 
-async function authenticate(mode: AuthMode, payload: Record<string, string>): Promise<AuthSession> {
+async function authenticate(mode: AuthMode, payload: Record<string, string>): Promise<AuthenticationResult> {
   const response = await fetch(`${API_BASE_URL}/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
     method: 'POST',
     headers: {
@@ -326,6 +339,155 @@ async function authenticate(mode: AuthMode, payload: Record<string, string>): Pr
   return response.json();
 }
 
+async function getApiErrorMessage(response: Response, fallback: string) {
+  try {
+    const apiError = await response.json() as ApiErrorResponse;
+    const fieldError = apiError.fieldErrors ? Object.values(apiError.fieldErrors)[0] : undefined;
+    return fieldError ?? apiError.message ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getAuthorizationHeader(authSession: AuthSession) {
+  return `${authSession.tokenType} ${authSession.accessToken}`;
+}
+
+async function fetchEPinStatus(authSession: AuthSession): Promise<boolean> {
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin/status`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load E-PIN status.'));
+  }
+
+  const result = await response.json() as { set: boolean };
+  return result.set;
+}
+
+async function saveEPin(
+  authSession: AuthSession,
+  currentPassword: string,
+  currentEPin: string | null,
+  newEPin: string,
+): Promise<void> {
+  const isChange = currentEPin !== null;
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin`, {
+    method: isChange ? 'PUT' : 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(isChange
+      ? { currentPassword, currentEPin, newEPin }
+      : { currentPassword, newEPin }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(
+      response,
+      isChange ? 'Unable to change your E-PIN.' : 'Unable to set your E-PIN.',
+    ));
+  }
+}
+
+async function verifyEPin(authSession: AuthSession, ePin: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin/verify`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ePin }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to verify E-PIN.'));
+  }
+}
+
+function accountResponseToClientAccount(account: AccountResponse): ClientAccount {
+  return {
+    id: account.iban,
+    name: account.name,
+    type: `${account.currency} account`,
+    iban: account.iban,
+    balance: Number(account.balance),
+    currency: account.currency,
+    opened: 'Not available',
+    branch: 'Sofia Private Office',
+  };
+}
+
+async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load accounts.'));
+  }
+
+  const accounts = await response.json() as AccountResponse[];
+  return accounts.map(accountResponseToClientAccount);
+}
+
+async function lookupRecipientAccount(authSession: AuthSession, iban: string): Promise<RecipientAccountResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts/lookup?iban=${encodeURIComponent(iban)}`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Recipient IBAN was not found.'));
+  }
+
+  return response.json();
+}
+
+async function createBankAccount(
+  authSession: AuthSession,
+  name: string,
+  currency: AccountCurrency,
+): Promise<ClientAccount> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, currency }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to create account.'));
+  }
+
+  return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+async function updateBankAccountName(
+  authSession: AuthSession,
+  iban: string,
+  name: string,
+): Promise<ClientAccount> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts/${encodeURIComponent(iban)}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to update account name.'));
+  }
+
+  return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+
 async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile> {
   const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
     headers: {
@@ -340,10 +502,29 @@ async function verifyAdminSession(authSession: AuthSession): Promise<UserProfile
   return response.json();
 }
 
+function getJwtExpiration(token: string): number | null {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      window.atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload).exp || null;
+  } catch {
+    return null;
+  }
+}
+
 function readStoredAuthSession(): AuthSession | null {
   try {
     const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-    return stored ? JSON.parse(stored) as AuthSession : null;
+    if (!stored) return null;
+    
+    const session = JSON.parse(stored) as AuthSession;
+    return session;
   } catch {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     return null;
@@ -574,89 +755,213 @@ function formatAccountBalance(account: ClientAccount) {
   }).format(account.balance);
 }
 
+function formatCurrencyAmount(value: number, currency: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+function getPortfolioTotalLabel(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return formatCurrencyAmount(0, 'EUR');
+
+  const currencies = new Set(accounts.map((account) => account.currency));
+  if (currencies.size > 1) {
+    return 'Multi-currency';
+  }
+
+  const [currency] = currencies;
+  const total = accounts.reduce((sum, account) => sum + account.balance, 0);
+  return formatCurrencyAmount(total, currency);
+}
+
+function getPortfolioRiskProfile(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return 'Not set';
+  if (accounts.length === 1) return 'Cash';
+  return new Set(accounts.map((account) => account.currency)).size > 1 ? 'Diversified cash' : 'Cash reserve';
+}
+
+function getPortfolioHoldings(accounts: ClientAccount[]): PortfolioHolding[] {
+  const positiveTotal = accounts.reduce((sum, account) => sum + Math.max(account.balance, 0), 0);
+
+  return accounts.map((account) => {
+    const allocation = positiveTotal > 0 ? Math.round((Math.max(account.balance, 0) / positiveTotal) * 100) : 0;
+    const allocationLabel = `${allocation}%`;
+
+    return {
+      name: account.name,
+      category: `${account.currency} Account`,
+      value: formatAccountBalance(account),
+      allocation: allocationLabel,
+      allocationWidth: allocationLabel,
+      status: account.balance > 0 ? 'Funded' : 'Awaiting funds',
+    };
+  });
+}
+
+function getPortfolioCurrencyAllocations(accounts: ClientAccount[]): PortfolioHolding[] {
+  const totalsByCurrency = accounts.reduce((totals, account) => {
+    totals.set(account.currency, (totals.get(account.currency) ?? 0) + account.balance);
+    return totals;
+  }, new Map<string, number>());
+  const positiveTotal = Array.from(totalsByCurrency.values()).reduce((sum, value) => sum + Math.max(value, 0), 0);
+
+  return Array.from(totalsByCurrency.entries())
+    .sort(([firstCurrency], [secondCurrency]) => firstCurrency.localeCompare(secondCurrency))
+    .map(([currency, value]) => {
+      const allocation = positiveTotal > 0 ? Math.round((Math.max(value, 0) / positiveTotal) * 100) : 0;
+      const allocationLabel = `${allocation}%`;
+
+      return {
+        name: currency,
+        category: currency,
+        value: formatCurrencyAmount(value, currency),
+        allocation: allocationLabel,
+        allocationWidth: allocationLabel,
+        status: `${currency} balance`,
+      };
+    });
+}
+
 function maskIban(iban: string) {
-  if (iban === 'Pending assignment') return iban;
   return `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}`;
 }
 
 function AccountsPage({
   showHome,
   showTransactions,
+  authSession,
 }: {
   showHome: () => void;
   showTransactions: () => void;
+  authSession: AuthSession;
 }) {
-  const [accounts, setAccounts] = React.useState<ClientAccount[]>(clientAccounts);
-  const [selectedAccountId, setSelectedAccountId] = React.useState(clientAccounts[0].id);
-  const [accountNames, setAccountNames] = React.useState<Record<string, string>>(
-    () => Object.fromEntries(clientAccounts.map((account) => [account.id, account.name])),
-  );
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = React.useState<string | null>(null);
+  const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(true);
+  const [accountsError, setAccountsError] = React.useState('');
+  const [accountActionError, setAccountActionError] = React.useState('');
+  const [accountSuccess, setAccountSuccess] = React.useState('');
   const [isCreateAccountOpen, setIsCreateAccountOpen] = React.useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = React.useState(false);
+  const [createAccountError, setCreateAccountError] = React.useState('');
   const [editingName, setEditingName] = React.useState(false);
   const [draftName, setDraftName] = React.useState('');
+  const [isSavingName, setIsSavingName] = React.useState(false);
   const [isIbanVisible, setIsIbanVisible] = React.useState(false);
   const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
   const [lockedAccountIds, setLockedAccountIds] = React.useState<Set<string>>(() => new Set());
 
-  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
-  const selectedName = accountNames[selectedAccount.id];
-  const isSelectedAccountLocked = lockedAccountIds.has(selectedAccount.id);
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
+  const selectedName = selectedAccount?.name ?? '';
+  const isSelectedAccountLocked = selectedAccount ? lockedAccountIds.has(selectedAccount.id) : false;
   const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
+
+  const loadAccounts = React.useCallback(async (preferredAccountId?: string) => {
+    setIsLoadingAccounts(true);
+    setAccountsError('');
+    try {
+      const loadedAccounts = await fetchAccounts(authSession);
+      setAccounts(loadedAccounts);
+      setSelectedAccountId((currentId) => {
+        if (preferredAccountId && loadedAccounts.some((account) => account.id === preferredAccountId)) {
+          return preferredAccountId;
+        }
+        if (currentId && loadedAccounts.some((account) => account.id === currentId)) {
+          return currentId;
+        }
+        return loadedAccounts[0]?.id ?? null;
+      });
+    } catch (loadError) {
+      setAccountsError(loadError instanceof Error ? loadError.message : 'Unable to load accounts.');
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    void loadAccounts();
+  }, [loadAccounts]);
 
   function selectAccount(account: ClientAccount) {
     setSelectedAccountId(account.id);
     setEditingName(false);
     setIsIbanVisible(false);
+    setAccountActionError('');
   }
 
   function startRenaming() {
+    if (!selectedAccount) return;
     setDraftName(selectedName);
     setEditingName(true);
+    setAccountActionError('');
   }
 
-  function saveAccountName(event: React.FormEvent<HTMLFormElement>) {
+  async function saveAccountName(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedAccount) return;
+
     const nextName = draftName.trim();
     if (!nextName) return;
-    setAccountNames((current) => ({ ...current, [selectedAccount.id]: nextName }));
-    setEditingName(false);
+
+    setIsSavingName(true);
+    setAccountActionError('');
+    setAccountSuccess('');
+    try {
+      const updatedAccount = await updateBankAccountName(authSession, selectedAccount.iban, nextName);
+      setAccounts((current) => current.map((account) => (
+        account.id === updatedAccount.id ? updatedAccount : account
+      )));
+      setEditingName(false);
+      setAccountSuccess('Account name updated.');
+    } catch (renameError) {
+      setAccountActionError(renameError instanceof Error ? renameError.message : 'Unable to update account name.');
+    } finally {
+      setIsSavingName(false);
+    }
   }
 
   async function copyIban() {
+    if (!selectedAccount) return;
     await navigator.clipboard.writeText(selectedAccount.iban);
     setCopiedAccountId(selectedAccount.id);
     window.setTimeout(() => setCopiedAccountId(null), 1800);
   }
 
-  function createAccount(event: React.FormEvent<HTMLFormElement>) {
+  async function createAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const accountName = getFormString(formData, 'accountName', true);
-    const accountType = getFormString(formData, 'accountType');
-    const currency = getFormString(formData, 'currency');
-    if (!accountName || !accountType || !currency) return;
+    const currency = getFormString(formData, 'currency') as AccountCurrency;
+    if (!accountName) {
+      setCreateAccountError('Account name is required.');
+      return;
+    }
+    if (!ACCOUNT_CURRENCIES.includes(currency)) {
+      setCreateAccountError('Choose a supported currency.');
+      return;
+    }
 
-    const accountId = `new-account-${Date.now()}`;
-    const newAccount: ClientAccount = {
-      id: accountId,
-      name: accountName,
-      type: accountType,
-      iban: 'Pending assignment',
-      balance: 0,
-      currency,
-      opened: new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date()),
-      branch: 'Sofia Private Office',
-    };
-
-    setAccounts((current) => [...current, newAccount]);
-    setAccountNames((current) => ({ ...current, [accountId]: accountName }));
-    setSelectedAccountId(accountId);
-    setIsCreateAccountOpen(false);
-    setEditingName(false);
-    setIsIbanVisible(false);
+    setIsCreatingAccount(true);
+    setCreateAccountError('');
+    setAccountSuccess('');
+    try {
+      const createdAccount = await createBankAccount(authSession, accountName, currency);
+      await loadAccounts(createdAccount.id);
+      setIsCreateAccountOpen(false);
+      setEditingName(false);
+      setIsIbanVisible(false);
+      setAccountSuccess('Account created successfully.');
+    } catch (createError) {
+      setCreateAccountError(createError instanceof Error ? createError.message : 'Unable to create account.');
+    } finally {
+      setIsCreatingAccount(false);
+    }
   }
 
   function toggleSelectedAccountLock() {
+    if (!selectedAccount) return;
     setLockedAccountIds((current) => {
       const next = new Set(current);
       if (next.has(selectedAccount.id)) {
@@ -710,6 +1015,9 @@ function AccountsPage({
           </div>
         </div>
 
+        {accountSuccess && <output className="mt-5 block text-sm font-bold text-emerald-500">{accountSuccess}</output>}
+        {accountActionError && <p className="mt-5 text-sm font-bold text-red-500" role="alert">{accountActionError}</p>}
+
         <div className="grid gap-px border-b border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
           {[
             ['Accounts', String(accounts.length)],
@@ -722,168 +1030,199 @@ function AccountsPage({
           ))}
         </div>
 
-        <div className="mt-10 grid gap-8 lg:grid-cols-[360px_1fr]">
-          <div className="overflow-hidden rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))]">
-            <div className="border-b border-[rgb(var(--line))] px-5 py-4">
-              <p className="text-[0.64rem] font-extrabold uppercase tracking-[0.28em] text-[rgb(var(--text-muted))]">Account Directory</p>
-            </div>
-            <div className="divide-y divide-[rgb(var(--line))]">
-              {accounts.map((account) => {
-                const isSelected = account.id === selectedAccount.id;
-                const isLocked = lockedAccountIds.has(account.id);
-                const AccountIcon = isLocked ? LockKeyhole : CreditCard;
-                return (
-                  <button
-                    key={account.id}
-                    type="button"
-                    onClick={() => selectAccount(account)}
-                    className={`w-full px-5 py-5 text-left transition ${
-                      isSelected
-                        ? 'bg-[rgb(var(--icon-bg))]'
-                        : 'hover:bg-[rgb(var(--service-hover))]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-[rgb(var(--text-strong))]">{accountNames[account.id]}</p>
-                        <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
-                      </div>
-                      <AccountIcon
-                        size={18}
-                        strokeWidth={1.7}
-                        className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
-                      />
-                    </div>
-                    <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
-                    <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
-                  </button>
-                );
-              })}
-            </div>
+        {isLoadingAccounts ? (
+          <div className="mt-10 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-8 text-sm font-bold text-[rgb(var(--text-muted))]">
+            Loading accounts...
           </div>
+        ) : accountsError ? (
+          <div className="mt-10 rounded-lg border border-red-500/30 bg-red-500/10 p-8">
+            <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
+            <button
+              type="button"
+              onClick={() => void loadAccounts()}
+              className="mt-5 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : !selectedAccount ? (
+          <div className="mt-10 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-8 text-center shadow-vault">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+              <CreditCard size={20} strokeWidth={1.8} />
+            </div>
+            <h2 className="mt-5 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">No accounts yet</h2>
+            <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+              Create your first account to receive a backend-generated IBAN and start using transfers.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsCreateAccountOpen(true)}
+              className="mt-6 inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+            >
+              <Plus size={17} strokeWidth={1.8} />
+              Create account
+            </button>
+          </div>
+        ) : (
+          <div className="mt-10 grid gap-8 lg:grid-cols-[360px_1fr]">
+            <div className="overflow-hidden rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))]">
+              <div className="border-b border-[rgb(var(--line))] px-5 py-4">
+                <p className="text-[0.64rem] font-extrabold uppercase tracking-[0.28em] text-[rgb(var(--text-muted))]">Account Directory</p>
+              </div>
+              <div className="divide-y divide-[rgb(var(--line))]">
+                {accounts.map((account) => {
+                  const isSelected = account.id === selectedAccount.id;
+                  const isLocked = lockedAccountIds.has(account.id);
+                  const AccountIcon = isLocked ? LockKeyhole : CreditCard;
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      onClick={() => selectAccount(account)}
+                      className={`w-full px-5 py-5 text-left transition ${
+                        isSelected
+                          ? 'bg-[rgb(var(--icon-bg))]'
+                          : 'hover:bg-[rgb(var(--service-hover))]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
+                          <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
+                        </div>
+                        <AccountIcon
+                          size={18}
+                          strokeWidth={1.7}
+                          className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
+                        />
+                      </div>
+                      <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
+                      <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-          <article className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault sm:p-8">
-            <div className="flex flex-col justify-between gap-6 border-b border-[rgb(var(--line))] pb-7 sm:flex-row sm:items-start">
-              <div>
-                {editingName ? (
-                  <form className="flex flex-col gap-3 sm:flex-row" onSubmit={saveAccountName}>
-                    <input
-                      value={draftName}
-                      onChange={(event) => setDraftName(event.target.value)}
-                      maxLength={60}
-                      autoFocus
-                      aria-label="Account name"
-                      className="min-w-0 rounded-md border border-[rgb(var(--gold))] bg-[rgb(var(--page-bg))] px-4 py-2.5 text-lg font-bold text-[rgb(var(--text-strong))] outline-none"
-                    />
-                    <div className="flex gap-2">
-                      <button type="submit" className="grid h-11 w-11 place-items-center rounded-md bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))]" aria-label="Save account name">
-                        <Check size={17} strokeWidth={2} />
-                      </button>
-                      <button type="button" onClick={() => setEditingName(false)} className="grid h-11 w-11 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))]" aria-label="Cancel account name edit">
-                        <X size={17} strokeWidth={1.8} />
+            <article className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-vault sm:p-8">
+              <div className="flex flex-col justify-between gap-6 border-b border-[rgb(var(--line))] pb-7 sm:flex-row sm:items-start">
+                <div>
+                  {editingName ? (
+                    <form className="flex flex-col gap-3 sm:flex-row" onSubmit={saveAccountName}>
+                      <input
+                        value={draftName}
+                        onChange={(event) => setDraftName(event.target.value)}
+                        maxLength={80}
+                        autoFocus
+                        aria-label="Account name"
+                        className="min-w-0 rounded-md border border-[rgb(var(--gold))] bg-[rgb(var(--page-bg))] px-4 py-2.5 text-lg font-bold text-[rgb(var(--text-strong))] outline-none"
+                      />
+                      <div className="flex gap-2">
+                        <button type="submit" disabled={isSavingName} className="grid h-11 w-11 place-items-center rounded-md bg-[rgb(var(--gold))] text-[rgb(var(--gold-ink))] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Save account name">
+                          <Check size={17} strokeWidth={2} />
+                        </button>
+                        <button type="button" onClick={() => setEditingName(false)} disabled={isSavingName} className="grid h-11 w-11 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Cancel account name edit">
+                          <X size={17} strokeWidth={1.8} />
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <h2 className="font-display text-3xl font-semibold text-[rgb(var(--text-strong))] sm:text-4xl">{selectedName}</h2>
+                      <button
+                        type="button"
+                        onClick={startRenaming}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                        aria-label="Rename account"
+                        title="Rename account"
+                      >
+                        <Pencil size={15} strokeWidth={1.8} />
                       </button>
                     </div>
-                  </form>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <h2 className="font-display text-3xl font-semibold text-[rgb(var(--text-strong))] sm:text-4xl">{selectedName}</h2>
-                    <button
-                      type="button"
-                      onClick={startRenaming}
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
-                      aria-label="Rename account"
-                      title="Rename account"
-                    >
-                      <Pencil size={15} strokeWidth={1.8} />
-                    </button>
-                  </div>
-                )}
-                <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{selectedAccount.type}</p>
-              </div>
-              <div className="sm:text-right">
-                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">Available Balance</p>
-                <p className="mt-2 font-display text-3xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(selectedAccount)}</p>
-              </div>
-            </div>
-
-            <div className="py-7">
-              <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">IBAN</p>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <p className="break-all font-mono text-base font-bold tracking-[0.08em] text-[rgb(var(--text-strong))]">
-                  {isIbanVisible ? selectedAccount.iban : maskIban(selectedAccount.iban)}
-                </p>
-                {selectedAccount.iban !== 'Pending assignment' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setIsIbanVisible((current) => !current)}
-                      className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
-                      aria-label={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
-                      title={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
-                    >
-                      <IbanVisibilityIcon size={16} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={copyIban}
-                      className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
-                      aria-label="Copy IBAN"
-                      title="Copy IBAN"
-                    >
-                      {copiedAccountId === selectedAccount.id
-                        ? <Check size={16} strokeWidth={2} />
-                        : <Copy size={16} strokeWidth={1.8} />}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
-              {[
-                ['Currency', selectedAccount.currency],
-                ['Account holder', 'Primary client'],
-                ['Opened', selectedAccount.opened],
-                ['Servicing branch', selectedAccount.branch],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
-                  <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
-                  <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                  )}
+                  <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{selectedAccount.type}</p>
                 </div>
-              ))}
-            </dl>
+                <div className="sm:text-right">
+                  <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">Available Balance</p>
+                  <p className="mt-2 font-display text-3xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(selectedAccount)}</p>
+                </div>
+              </div>
 
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={showTransactions}
-                disabled={isSelectedAccountLocked}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
-              >
-                <Zap size={16} strokeWidth={1.8} />
-                {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
-              </button>
-              <button
-                type="button"
-                onClick={startRenaming}
-                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-              >
-                <Pencil size={16} strokeWidth={1.8} />
-                Edit account name
-              </button>
-              <button
-                type="button"
-                onClick={toggleSelectedAccountLock}
-                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-              >
-                {isSelectedAccountLocked
-                  ? <Unlock size={16} strokeWidth={1.8} />
-                  : <LockKeyhole size={16} strokeWidth={1.8} />}
-                {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
-              </button>
-            </div>
-          </article>
-        </div>
+              <div className="py-7">
+                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.25em] text-[rgb(var(--text-muted))]">IBAN</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <p className="break-all font-mono text-base font-bold tracking-[0.08em] text-[rgb(var(--text-strong))]">
+                    {isIbanVisible ? selectedAccount.iban : maskIban(selectedAccount.iban)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsIbanVisible((current) => !current)}
+                    className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                    aria-label={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
+                    title={isIbanVisible ? 'Hide IBAN' : 'Show IBAN'}
+                  >
+                    <IbanVisibilityIcon size={16} strokeWidth={1.8} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyIban}
+                    className="grid h-9 w-9 place-items-center rounded-md border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--gold))]"
+                    aria-label="Copy IBAN"
+                    title="Copy IBAN"
+                  >
+                    {copiedAccountId === selectedAccount.id
+                      ? <Check size={16} strokeWidth={2} />
+                      : <Copy size={16} strokeWidth={1.8} />}
+                  </button>
+                </div>
+              </div>
+
+              <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
+                {[
+                  ['Currency', selectedAccount.currency],
+                  ['Account holder', 'Primary client'],
+                  ['Opened', selectedAccount.opened],
+                  ['Servicing branch', selectedAccount.branch],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
+                    <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
+                    <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={showTransactions}
+                  disabled={isSelectedAccountLocked}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+                >
+                  <Zap size={16} strokeWidth={1.8} />
+                  {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={startRenaming}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                >
+                  <Pencil size={16} strokeWidth={1.8} />
+                  Edit account name
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleSelectedAccountLock}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                >
+                  {isSelectedAccountLocked
+                    ? <Unlock size={16} strokeWidth={1.8} />
+                    : <LockKeyhole size={16} strokeWidth={1.8} />}
+                  {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
+                </button>
+              </div>
+            </article>
+          </div>
+        )}
       </div>
 
       {isCreateAccountOpen && (
@@ -894,9 +1233,8 @@ function AccountsPage({
             className="absolute inset-0 bg-black/65 backdrop-blur-sm"
             onClick={() => setIsCreateAccountOpen(false)}
           />
-          <section
-            role="dialog"
-            aria-modal="true"
+          <dialog
+            open
             aria-labelledby="create-account-title"
             className="relative w-full max-w-[460px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
           >
@@ -921,24 +1259,12 @@ function AccountsPage({
                 <input
                   name="accountName"
                   type="text"
-                  maxLength={60}
+                  maxLength={80}
                   autoFocus
                   className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                  placeholder="My savings"
+                  placeholder="Main Account"
                   required
                 />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Account Type</span>
-                <select
-                  name="accountType"
-                  className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
-                  required
-                >
-                  <option value="Everyday account">Everyday account</option>
-                  <option value="Savings account">Savings account</option>
-                  <option value="Foreign currency account">Foreign currency account</option>
-                </select>
               </label>
               <label className="block">
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Currency</span>
@@ -947,20 +1273,29 @@ function AccountsPage({
                   className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
                   required
                 >
-                  <option value="BGN">BGN</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
+                  {ACCOUNT_CURRENCIES.map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
                 </select>
               </label>
+              {createAccountError && <p className="text-sm font-bold text-red-500" role="alert">{createAccountError}</p>}
               <button
                 type="submit"
-                className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
+                disabled={isCreatingAccount}
+                className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
-                Create account
+                {isCreatingAccount ? 'Creating...' : 'Create account'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCreateAccountOpen(false)}
+                disabled={isCreatingAccount}
+                className="w-full rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
               </button>
             </form>
-          </section>
+          </dialog>
         </div>
       )}
     </section>
@@ -974,6 +1309,251 @@ function formatProfileDate(value: string | null, fallback: string) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(date);
 }
 
+function SecureEPinField({
+  label,
+  name,
+  value,
+  isVisible,
+  onChange,
+  onToggleVisibility,
+}: Readonly<{
+  label: string;
+  name: string;
+  value: string;
+  isVisible: boolean;
+  onChange: (value: string) => void;
+  onToggleVisibility: () => void;
+}>) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">{label}</span>
+      <div className="relative">
+        <input
+          name={name}
+          type={isVisible ? 'text' : 'password'}
+          inputMode="numeric"
+          autoComplete="off"
+          minLength={EPIN_LENGTH}
+          maxLength={EPIN_LENGTH}
+          pattern={EPIN_INPUT_PATTERN}
+          value={value}
+          onChange={(event) => onChange(sanitizeEPin(event.target.value))}
+          className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 pr-12 font-mono text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+          required
+        />
+        <button
+          type="button"
+          onClick={onToggleVisibility}
+          className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-[rgb(var(--text-muted))] transition hover:bg-[rgb(var(--line))] hover:text-[rgb(var(--text-strong))]"
+          aria-label={isVisible ? `Hide ${label}` : `Show ${label}`}
+          aria-pressed={isVisible}
+        >
+          {isVisible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </div>
+    </label>
+  );
+}
+
+function validateEPinSave(currentPassword: string, currentEPin: string | null, newEPin: string) {
+  if (!currentPassword) return 'Enter your current password.';
+  if (currentEPin !== null && !EPIN_PATTERN.test(currentEPin)) return `Current ${EPIN_VALIDATION_MESSAGE}`;
+  if (!EPIN_PATTERN.test(newEPin)) return `New ${EPIN_VALIDATION_MESSAGE}`;
+  if (currentEPin !== null && currentEPin === newEPin) return 'New E-PIN must be different from the current E-PIN.';
+  return '';
+}
+
+function ChangeEPinModal({
+  authSession,
+  isSet,
+  onClose,
+  onSaved,
+}: Readonly<{
+  authSession: AuthSession;
+  isSet: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}>) {
+  const [error, setError] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [currentEPin, setCurrentEPin] = React.useState('');
+  const [newEPin, setNewEPin] = React.useState('');
+  const [showCurrentEPin, setShowCurrentEPin] = React.useState(false);
+  const [showNewEPin, setShowNewEPin] = React.useState(false);
+  const actionLabel = isSet ? 'Change E-PIN' : 'Set E-PIN';
+  const submitLabel = isSubmitting ? 'Saving...' : actionLabel;
+  const description = isSet
+    ? 'Confirm your current password and E-PIN before setting a new 6-digit E-PIN.'
+    : 'Confirm your current password before setting your 6-digit E-PIN.';
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isSubmitting) onClose();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSubmitting, onClose]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+
+    const formData = new FormData(event.currentTarget);
+    const currentPassword = getFormString(formData, 'currentPassword');
+    const currentEPinValue = isSet ? currentEPin : null;
+    const validationError = validateEPinSave(currentPassword, currentEPinValue, newEPin);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await saveEPin(authSession, currentPassword, currentEPinValue, newEPin);
+      onSaved();
+    } catch (changeError) {
+      setError(changeError instanceof Error ? changeError.message : 'Unable to change your E-PIN.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center px-5 py-8">
+      <button
+        type="button"
+        aria-label="Close Change E-PIN popup"
+        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+        onClick={isSubmitting ? undefined : onClose}
+      />
+      <dialog
+        open
+        aria-labelledby="change-epin-title"
+        className="relative w-full max-w-[440px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isSubmitting}
+          className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--text-strong))] disabled:opacity-50"
+          aria-label="Close popup"
+        >
+          <X size={17} strokeWidth={1.8} />
+        </button>
+        <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <KeyRound size={20} strokeWidth={1.8} />
+        </div>
+        <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Security Check</p>
+        <h2 id="change-epin-title" className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">
+          {actionLabel}
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
+          {description}
+        </p>
+
+        <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
+          <label className="block">
+            <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Current Password</span>
+            <input
+              name="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]"
+              required
+              autoFocus
+            />
+          </label>
+          {isSet && (
+            <SecureEPinField
+              label="Current E-PIN"
+              name="currentEPin"
+              value={currentEPin}
+              isVisible={showCurrentEPin}
+              onChange={setCurrentEPin}
+              onToggleVisibility={() => setShowCurrentEPin((visible) => !visible)}
+            />
+          )}
+          <SecureEPinField
+            label="New E-PIN"
+            name="newEPin"
+            value={newEPin}
+            isVisible={showNewEPin}
+            onChange={setNewEPin}
+            onToggleVisibility={() => setShowNewEPin((visible) => !visible)}
+          />
+          {error && (
+            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-md bg-[rgb(var(--gold))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {submitLabel}
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </div>
+  );
+}
+
+function OneTimeEPinNotice({
+  ePin,
+  onClose,
+}: Readonly<{
+  ePin: string;
+  onClose: () => void;
+}>) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center px-5 py-8">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <dialog
+        open
+        aria-labelledby="one-time-epin-title"
+        className="relative w-full max-w-[440px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 text-center shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+      >
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <KeyRound size={20} strokeWidth={1.8} />
+        </div>
+        <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.34em] text-[rgb(var(--gold))]">Shown Once</p>
+        <h2 id="one-time-epin-title" className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">
+          Save Your E-PIN
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-[rgb(var(--text-muted))]">
+          This automatically generated E-PIN cannot be recovered or displayed again.
+        </p>
+        <output className="mt-7 block rounded-md border border-[rgb(var(--gold))]/35 bg-[rgb(var(--page-bg))] px-5 py-4 font-mono text-2xl font-bold tracking-[0.28em] text-[rgb(var(--text-strong))]">
+          {ePin}
+        </output>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-7 w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold"
+        >
+          I Have Saved It
+        </button>
+      </dialog>
+    </div>
+  );
+}
+
 function UserPage({
   authSession,
   showHome,
@@ -984,8 +1564,10 @@ function UserPage({
   showAccounts: () => void;
 }>) {
   const { user } = authSession;
-  const [ePin, setEPin] = React.useState('');
-  const [isEPinSaved, setIsEPinSaved] = React.useState(false);
+  const [isEPinSet, setIsEPinSet] = React.useState<boolean | null>(null);
+  const [ePinError, setEPinError] = React.useState('');
+  const [ePinSuccess, setEPinSuccess] = React.useState('');
+  const [isChangeEPinOpen, setIsChangeEPinOpen] = React.useState(false);
   const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
   const userDetails = [
     ['First name', user.firstName],
@@ -996,11 +1578,39 @@ function UserPage({
     ['Client since', formatProfileDate(user.createdAt, 'Not available')],
   ];
 
-  function saveEPin(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!/^\d{6}$/.test(ePin)) return;
-    setIsEPinSaved(true);
+  React.useEffect(() => {
+    let isActive = true;
+    setIsEPinSet(null);
+    setEPinError('');
+
+    fetchEPinStatus(authSession)
+      .then((value) => {
+        if (isActive) setIsEPinSet(value);
+      })
+      .catch((loadError) => {
+        if (isActive) {
+          setEPinError(loadError instanceof Error ? loadError.message : 'Unable to load E-PIN status.');
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [authSession]);
+
+  function handleEPinSaved() {
+    const successMessage = isEPinSet
+      ? 'Your E-PIN was changed successfully.'
+      : 'Your E-PIN was set successfully.';
+    setIsEPinSet(true);
+    setEPinError('');
+    setEPinSuccess(successMessage);
+    setIsChangeEPinOpen(false);
   }
+
+  let ePinDisplay = 'Checking...';
+  if (isEPinSet === true) ePinDisplay = '••••••';
+  if (isEPinSet === false) ePinDisplay = 'Not set';
 
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
@@ -1084,54 +1694,323 @@ function UserPage({
                   Your password is hidden and is never returned by the server.
                 </p>
               </div>
-              <form className="mt-7 border-t border-[rgb(var(--line))] pt-6" onSubmit={saveEPin}>
-                <label className="block">
-                  <span className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">E-PIN</span>
-                  <input
-                    name="ePin"
-                    type="password"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    minLength={6}
-                    maxLength={6}
-                    pattern="[0-9]{6}"
-                    value={ePin}
-                    onChange={(event) => {
-                      setEPin(event.target.value.replace(/\D/g, '').slice(0, 6));
-                      setIsEPinSaved(false);
-                    }}
-                    className="mt-3 w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none placeholder:tracking-normal placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                    placeholder="Enter 6-digit E-PIN"
-                    aria-describedby="epin-requirements"
-                    required
-                  />
-                </label>
-                <p id="epin-requirements" className="mt-2 text-xs font-semibold text-[rgb(var(--text-muted))]">
-                  Enter exactly 6 numbers.
-                </p>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <button
-                    type="submit"
-                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5"
-                  >
-                    Save E-PIN
-                  </button>
-                  {isEPinSaved && (
-                    <output className="text-sm font-bold text-emerald-500">
-                      E-PIN saved locally.
-                    </output>
-                  )}
+              <div className="mt-7 border-t border-[rgb(var(--line))] pt-6">
+                <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">E-PIN</p>
+                <div className="mt-3 flex items-center gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3">
+                  <KeyRound size={17} strokeWidth={1.8} className="shrink-0 text-[rgb(var(--text-muted))]" />
+                  <span className="min-w-0 flex-1 font-mono text-base tracking-[0.2em] text-[rgb(var(--text-strong))]">
+                    {ePinDisplay}
+                  </span>
                 </div>
-              </form>
+                <p className="mt-3 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+                  Your E-PIN is never returned by the server.
+                </p>
+                {ePinError && <p className="mt-3 text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+                {ePinSuccess && <output className="mt-3 block text-sm font-bold text-emerald-500">{ePinSuccess}</output>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEPinSuccess('');
+                    setIsChangeEPinOpen(true);
+                  }}
+                  disabled={isEPinSet === null || Boolean(ePinError)}
+                  className="mt-5 rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                >
+                  {isEPinSet ? 'Change E-PIN' : 'Set E-PIN'}
+                </button>
+              </div>
             </section>
           </div>
         </div>
       </div>
+      {isChangeEPinOpen && (
+        <ChangeEPinModal
+          authSession={authSession}
+          isSet={Boolean(isEPinSet)}
+          onClose={() => setIsChangeEPinOpen(false)}
+          onSaved={handleEPinSaved}
+        />
+      )}
     </section>
   );
 }
 
-function TransactionsPage({ showHome }: { showHome: () => void }) {
+const EMPTY_TRANSFER_DRAFT: TransferDraft = {
+  sourceAccountIban: '',
+  destinationAccountIban: '',
+  amount: '',
+  currency: 'EUR',
+  reason: '',
+};
+
+type TransactionsPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+}>;
+
+function getTransferValidationErrors(
+  draft: TransferDraft,
+  accounts: ClientAccount[],
+  recipientAccount: RecipientAccountResponse | null,
+): TransferValidationErrors {
+  const validationErrors: TransferValidationErrors = {};
+  const amount = Number(draft.amount);
+  const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
+
+  if (!draft.sourceAccountIban) {
+    validationErrors.sourceAccountIban = 'Choose a source account.';
+  } else if (!sourceAccount) {
+    validationErrors.sourceAccountIban = 'Choose one of your available accounts.';
+  }
+
+  if (!draft.destinationAccountIban.trim()) {
+    validationErrors.destinationAccountIban = 'Recipient IBAN is required.';
+  } else if (recipientAccount?.iban !== draft.destinationAccountIban.trim().toUpperCase()) {
+    validationErrors.destinationAccountIban = 'Enter a valid recipient IBAN from SAFE Bank.';
+  }
+
+  if (!draft.amount.trim()) {
+    validationErrors.amount = 'Amount is required.';
+  } else if (!Number.isFinite(amount) || amount <= 0) {
+    validationErrors.amount = 'Amount must be greater than zero.';
+  } else if (canCheckTransferBalance(sourceAccount, recipientAccount) && amount > sourceAccount.balance) {
+    validationErrors.amount = 'Insufficient funds in the selected account.';
+  }
+
+  if (!draft.reason.trim()) {
+    validationErrors.reason = 'Reason is required.';
+  }
+
+  return validationErrors;
+}
+
+function canCheckTransferBalance(
+  sourceAccount: ClientAccount | null,
+  recipientAccount: RecipientAccountResponse | null,
+): sourceAccount is ClientAccount {
+  return Boolean(sourceAccount?.currency && sourceAccount.currency === recipientAccount?.currency);
+}
+
+function getTransferAmountLabel(draft: TransferDraft) {
+  if (!draft.amount) return formatCurrencyAmount(0, draft.currency);
+  return formatCurrencyAmount(Number(draft.amount), draft.currency);
+}
+
+function getDailyLimitLabel(sourceAccount: ClientAccount | null) {
+  return formatCurrencyAmount(500000, sourceAccount?.currency ?? 'EUR');
+}
+
+function getCurrencyCheckLabel(
+  recipientAccount: RecipientAccountResponse | null,
+  canCheckSourceBalance: boolean,
+) {
+  if (!recipientAccount) return '';
+  let balanceMessage = ' · Balance check skipped for different currencies';
+  if (canCheckSourceBalance) {
+    balanceMessage = '';
+  }
+  return `Recipient currency: ${recipientAccount.currency}${balanceMessage}`;
+}
+
+function getTransferSummaryRows(
+  draft: TransferDraft,
+  sourceAccount: ClientAccount | null,
+) {
+  let sourceAccountLabel = 'Not selected';
+  if (sourceAccount) {
+    sourceAccountLabel = `${sourceAccount.name} · ${maskIban(sourceAccount.iban)}`;
+  }
+
+  return [
+    ['From', sourceAccountLabel],
+    ['Recipient', draft.destinationAccountIban],
+    ['Amount', getTransferAmountLabel(draft)],
+    ['Currency', draft.currency],
+    ['Reason', draft.reason],
+  ];
+}
+
+function useTransferAccounts(
+  authSession: AuthSession,
+  setDraft: React.Dispatch<React.SetStateAction<TransferDraft>>,
+) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(true);
+  const [accountsError, setAccountsError] = React.useState('');
+
+  const loadTransferAccounts = React.useCallback(async () => {
+    setIsLoadingAccounts(true);
+    setAccountsError('');
+    try {
+      const loadedAccounts = await fetchAccounts(authSession);
+      setAccounts(loadedAccounts);
+      setDraft((currentDraft) => {
+        if (currentDraft.sourceAccountIban || loadedAccounts.length === 0) return currentDraft;
+        const firstAccount = loadedAccounts[0];
+        return {
+          ...currentDraft,
+          sourceAccountIban: firstAccount.iban,
+          currency: firstAccount.currency,
+        };
+      });
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : 'Unable to load accounts.');
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, [authSession, setDraft]);
+
+  React.useEffect(() => {
+    loadTransferAccounts();
+  }, [loadTransferAccounts]);
+
+  return {
+    accounts,
+    accountsError,
+    isLoadingAccounts,
+    loadTransferAccounts,
+  };
+}
+
+function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
+  const [draft, setDraft] = React.useState<TransferDraft>(EMPTY_TRANSFER_DRAFT);
+  const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
+  const {
+    accounts,
+    accountsError,
+    isLoadingAccounts,
+    loadTransferAccounts,
+  } = useTransferAccounts(authSession, setDraft);
+  const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
+  const [recipientLookupError, setRecipientLookupError] = React.useState('');
+  const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
+  const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
+  const [ePin, setEPin] = React.useState('');
+  const [ePinError, setEPinError] = React.useState('');
+  const [transferNotice, setTransferNotice] = React.useState('');
+  const [isVerifyingEPin, setIsVerifyingEPin] = React.useState(false);
+
+  const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
+  const totalBalanceLabel = getPortfolioTotalLabel(accounts);
+  const dailyLimitLabel = getDailyLimitLabel(sourceAccount);
+  const canCheckSourceBalance = canCheckTransferBalance(sourceAccount, recipientAccount);
+  const currencyCheckLabel = getCurrencyCheckLabel(recipientAccount, canCheckSourceBalance);
+
+  function updateDraft(field: keyof TransferDraft, value: string) {
+    setTransferNotice('');
+    if (field === 'destinationAccountIban') {
+      setRecipientAccount(null);
+      setRecipientLookupError('');
+    }
+    setFieldErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+    setDraft((currentDraft) => {
+      if (field !== 'sourceAccountIban') {
+        return { ...currentDraft, [field]: value };
+      }
+      const nextAccount = accounts.find((account) => account.iban === value);
+      return {
+        ...currentDraft,
+        sourceAccountIban: value,
+        currency: recipientAccount?.currency ?? nextAccount?.currency ?? currentDraft.currency,
+      };
+    });
+  }
+
+  async function checkRecipientIban(iban = draft.destinationAccountIban): Promise<RecipientAccountResponse | null> {
+    const normalizedIban = iban.trim().toUpperCase();
+    setRecipientLookupError('');
+    setRecipientAccount(null);
+
+    if (!normalizedIban) {
+      return null;
+    }
+
+    setIsCheckingRecipient(true);
+    try {
+      const account = await lookupRecipientAccount(authSession, normalizedIban);
+      setRecipientAccount(account);
+      setDraft((currentDraft) => ({
+        ...currentDraft,
+        destinationAccountIban: account.iban,
+        currency: account.currency,
+      }));
+      return account;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Recipient IBAN was not found.';
+      setRecipientLookupError(message);
+      return null;
+    } finally {
+      setIsCheckingRecipient(false);
+    }
+  }
+
+  async function reviewTransfer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setTransferNotice('');
+    setEPinError('');
+    const normalizedDestinationIban = draft.destinationAccountIban.trim().toUpperCase();
+    const verifiedRecipient = recipientAccount?.iban === normalizedDestinationIban
+      ? recipientAccount
+      : await checkRecipientIban(normalizedDestinationIban);
+    const validationErrors = getTransferValidationErrors(draft, accounts, verifiedRecipient);
+    setFieldErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
+
+    try {
+      const isEPinSet = await fetchEPinStatus(authSession);
+      if (!isEPinSet) {
+        setEPinError('Set your E-PIN from the profile page before sending transfers.');
+        setActiveStep('epin');
+        return;
+      }
+      setActiveStep('summary');
+    } catch (error) {
+      setEPinError(error instanceof Error ? error.message : 'Unable to check E-PIN status.');
+      setActiveStep('epin');
+    }
+  }
+
+  async function verifyTransferEPin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setEPinError('');
+    if (!EPIN_PATTERN.test(ePin)) {
+      setEPinError(EPIN_VALIDATION_MESSAGE);
+      return;
+    }
+
+    setIsVerifyingEPin(true);
+    try {
+      await verifyEPin(authSession, ePin);
+      setActiveStep(null);
+      setEPin('');
+      setTransferNotice('E-PIN verified. Transfer submission is paused until the transaction service is available.');
+    } catch (error) {
+      setEPinError(error instanceof Error ? error.message : 'Unable to verify E-PIN.');
+    } finally {
+      setIsVerifyingEPin(false);
+    }
+  }
+
+  function closeTransferModal() {
+    setActiveStep(null);
+    setEPin('');
+    setEPinError('');
+  }
+
+  function retryTransferAccounts() {
+    loadTransferAccounts();
+  }
+
+  function checkCurrentRecipientIban() {
+    checkRecipientIban();
+  }
+
+  const summaryRows = getTransferSummaryRows(draft, sourceAccount);
+
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
       <div className="mx-auto max-w-[980px]">
@@ -1157,9 +2036,9 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
 
             <div className="mt-10 grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
               {[
-                ['Available Balance', '$4,821,390.44'],
-                ['Pending Review', '$86,000.00'],
-                ['Daily Limit', '$500,000.00'],
+                ['Available Balance', totalBalanceLabel],
+                ['Accounts', String(accounts.length)],
+                ['Daily Limit', dailyLimitLabel],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
                   <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
@@ -1178,43 +2057,104 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
               <div className="grid h-11 w-11 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
                 <Zap size={18} strokeWidth={1.8} />
               </div>
-            </div>
+              </div>
 
-            <form className="mt-6 flex flex-1 flex-col gap-4" onSubmit={(event) => event.preventDefault()}>
+            {accountsError && (
+              <div className="mt-5 rounded-md border border-red-500/30 bg-red-500/10 p-4">
+                <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
+                <button
+                  type="button"
+                  onClick={retryTransferAccounts}
+                  className="mt-3 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <form className="mt-6 flex flex-1 flex-col gap-4" onSubmit={reviewTransfer}>
               <label>
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">From Account</span>
-                <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                  <option>SAFE Private Checking • 3944</option>
-                  <option>SAFE Reserve Account • 1847</option>
+                <select
+                  value={draft.sourceAccountIban}
+                  onChange={(event) => updateDraft('sourceAccountIban', event.target.value)}
+                  disabled={isLoadingAccounts || accounts.length === 0}
+                  className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60 ${
+                    fieldErrors.sourceAccountIban ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
+                >
+                  <option value="">{isLoadingAccounts ? 'Loading accounts...' : 'Choose account'}</option>
+                  {accounts.map((account) => (
+                    <option key={account.iban} value={account.iban}>
+                      {account.name} · {maskIban(account.iban)} · {formatAccountBalance(account)}
+                    </option>
+                  ))}
                 </select>
+                {fieldErrors.sourceAccountIban && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.sourceAccountIban}</p>}
               </label>
               <label>
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Recipient</span>
-                <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="IBAN" />
+                <input
+                  value={draft.destinationAccountIban}
+                  onChange={(event) => updateDraft('destinationAccountIban', event.target.value.toUpperCase())}
+                  onBlur={checkCurrentRecipientIban}
+                  className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                    fieldErrors.destinationAccountIban || recipientLookupError ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
+                  placeholder="IBAN"
+                />
+                {isCheckingRecipient && <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">Checking recipient IBAN...</p>}
+                {recipientAccount && !isCheckingRecipient && <p className="mt-2 text-xs font-bold text-emerald-500">{currencyCheckLabel}</p>}
+                {(fieldErrors.destinationAccountIban || recipientLookupError) && (
+                  <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.destinationAccountIban ?? recipientLookupError}</p>
+                )}
               </label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label>
                   <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Amount</span>
-                  <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="$0.00" />
+                  <input
+                    value={draft.amount}
+                    onChange={(event) => updateDraft('amount', event.target.value)}
+                    inputMode="decimal"
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                      fieldErrors.amount ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    placeholder="0.00"
+                  />
+                  {fieldErrors.amount && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.amount}</p>}
                 </label>
                 <label>
                   <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Currency</span>
-                  <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                    <option>Euro</option>
-                    <option>USD</option>
-                    <option>Pound</option>
-                  </select>
+                  <input
+                    value={draft.currency}
+                    readOnly
+                    className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))] outline-none"
+                  />
+                  <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">
+                    Set automatically from the recipient account.
+                  </p>
                 </label>
               </div>
               <label className="flex flex-1 flex-col">
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Reason</span>
                 <textarea
-                  className="min-h-[150px] flex-1 resize-none rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold leading-6 text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                  value={draft.reason}
+                  onChange={(event) => updateDraft('reason', event.target.value)}
+                  className={`min-h-[150px] flex-1 resize-none rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold leading-6 text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                    fieldErrors.reason ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
                   placeholder="Payment reference or transfer purpose"
                 />
+                {fieldErrors.reason && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.reason}</p>}
               </label>
-              <button className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5" type="submit">
-                Review Transfer
+              {ePinError && !activeStep && <p className="text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+              {transferNotice && <output className="text-sm font-bold text-emerald-500">{transferNotice}</output>}
+              <button
+                className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                type="submit"
+                disabled={isLoadingAccounts || isCheckingRecipient || accounts.length === 0}
+              >
+                {isCheckingRecipient ? 'Checking Recipient...' : 'Review Transfer'}
               </button>
             </form>
           </div>
@@ -1244,11 +2184,209 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
           </div>
         </div>
       </div>
+      {activeStep && (
+        <dialog open className="fixed inset-0 z-[80] grid h-full w-full place-items-center overflow-y-auto bg-black/65 px-5 py-8 backdrop:bg-transparent">
+          <div className="relative w-full max-w-[560px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
+            <button
+              type="button"
+              onClick={closeTransferModal}
+              className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--text-strong))]"
+              aria-label="Close transfer popup"
+            >
+              <X size={17} strokeWidth={1.8} />
+            </button>
+
+            {activeStep === 'summary' && (
+              <div>
+                <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Transfer Summary</p>
+                <h2 className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Review Details</h2>
+                <dl className="mt-7 divide-y divide-[rgb(var(--line))] rounded-md border border-[rgb(var(--line))]">
+                  {summaryRows.map(([label, value]) => (
+                    <div key={label} className="grid gap-2 px-4 py-4 sm:grid-cols-[130px_1fr]">
+                      <dt className="text-xs font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">{label}</dt>
+                      <dd className="break-words text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('epin')}
+                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold"
+                  >
+                    Confirm & Continue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeTransferModal}
+                    className="rounded-md border border-[rgb(var(--button-line))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeStep === 'epin' && (
+              <form onSubmit={verifyTransferEPin}>
+                <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">E-PIN Verification</p>
+                <h2 className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Confirm Transfer</h2>
+                <p className="mt-4 text-sm leading-6 text-[rgb(var(--text-muted))]">
+                  Enter your 6-digit E-PIN. This only verifies your E-PIN for now; the transaction service is not connected yet.
+                </p>
+                <label className="mt-6 block">
+                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">E-PIN</span>
+                  <input
+                    value={ePin}
+                    onChange={(event) => {
+                      setEPin(sanitizeEPin(event.target.value));
+                      setEPinError('');
+                    }}
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern={EPIN_INPUT_PATTERN}
+                    maxLength={EPIN_LENGTH}
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-center font-mono text-lg font-bold tracking-[0.4em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))] ${
+                      ePinError ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    placeholder="••••••"
+                  />
+                </label>
+                {ePinError && <p className="mt-3 text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="submit"
+                    disabled={isVerifyingEPin}
+                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isVerifyingEPin ? 'Checking E-PIN...' : 'Confirm & Send'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('summary')}
+                    disabled={isVerifyingEPin}
+                    className="rounded-md border border-[rgb(var(--button-line))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Back
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </dialog>
+      )}
     </section>
   );
 }
 
-function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; showTransactions: () => void }) {
+type PortfolioPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+  showTransactions: () => void;
+}>;
+
+function PortfolioPage({
+  authSession,
+  showHome,
+  showTransactions,
+}: PortfolioPageProps) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [portfolioError, setPortfolioError] = React.useState('');
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = React.useState(true);
+
+  const loadPortfolio = React.useCallback(async () => {
+    setIsLoadingPortfolio(true);
+    setPortfolioError('');
+    try {
+      setAccounts(await fetchAccounts(authSession));
+    } catch (error) {
+      setPortfolioError(error instanceof Error ? error.message : 'Unable to load portfolio.');
+    } finally {
+      setIsLoadingPortfolio(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    loadPortfolio();
+  }, [loadPortfolio]);
+
+  const holdings = getPortfolioHoldings(accounts);
+  const allocations = getPortfolioCurrencyAllocations(accounts);
+  const portfolioMetrics = [
+    ['Total Value', getPortfolioTotalLabel(accounts)],
+    ['Accounts', String(accounts.length)],
+    ['Risk Profile', getPortfolioRiskProfile(accounts)],
+  ];
+  let allocationContent: React.ReactNode;
+  if (isLoadingPortfolio) {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">Loading portfolio...</p>;
+  } else if (allocations.length > 0) {
+    allocationContent = allocations.map((holding) => (
+      <div key={holding.category}>
+        <div className="mb-2 flex items-center justify-between text-sm font-bold">
+          <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
+          <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+        </div>
+        <div className="h-2 rounded-full bg-[rgb(var(--line))]">
+          <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocationWidth }} />
+        </div>
+      </div>
+    ));
+  } else {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">No allocation data yet.</p>;
+  }
+
+  let holdingsContent: React.ReactNode;
+  if (portfolioError) {
+    holdingsContent = (
+      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+        <p className="text-sm font-bold text-red-500" role="alert">{portfolioError}</p>
+        <button
+          type="button"
+          onClick={loadPortfolio}
+          className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  } else if (isLoadingPortfolio) {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading holdings...
+      </div>
+    );
+  } else if (holdings.length > 0) {
+    holdingsContent = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {holdings.map((holding) => (
+          <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+            <div>
+              <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
+              <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+            </div>
+            <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
+            <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
+            <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-8 text-center">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <ChartPie size={20} strokeWidth={1.8} />
+        </div>
+        <h3 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">No portfolio data yet</h3>
+        <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+          Create an account or fund an existing account to populate your portfolio.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
       <div className="mx-auto max-w-[980px]">
@@ -1270,14 +2408,10 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Command Center
             </h1>
             <p className="mt-7 max-w-[560px] text-lg leading-8 text-[rgb(var(--text-muted))]">
-              Review your allocation, performance, and holdings across the mandates managed by SAFE Bank advisors.
+              Review your account allocation, balances, and transfer-ready holdings from live banking data.
             </p>
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              {[
-                ['Total Value', '$4,821,390.44'],
-                ['YTD Return', '+11.8%'],
-                ['Risk Profile', 'Balanced'],
-              ].map(([label, value]) => (
+              {portfolioMetrics.map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
                   <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
                   <p className="mt-3 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{value}</p>
@@ -1297,17 +2431,7 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               </div>
             </div>
             <div className="mt-6 space-y-5">
-              {holdings.map((holding) => (
-                <div key={holding.category}>
-                  <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                    <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
-                    <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-[rgb(var(--line))]">
-                    <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocation }} />
-                  </div>
-                </div>
-              ))}
+              {allocationContent}
             </div>
           </div>
         </div>
@@ -1326,19 +2450,7 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Transfer Funds
             </button>
           </div>
-          <div className="divide-y divide-[rgb(var(--line))]">
-            {holdings.map((holding) => (
-              <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
-                <div>
-                  <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
-                </div>
-                <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
-                <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
-                <span className="text-sm font-extrabold text-emerald-500">{holding.change}</span>
-              </div>
-            ))}
-          </div>
+          {holdingsContent}
         </div>
       </div>
     </section>
@@ -1739,7 +2851,7 @@ type AuthPopupProps = {
   isOpen: boolean;
   onClose: () => void;
   onModeChange: (mode: AuthMode) => void;
-  onAuthenticated: (session: AuthSession) => void;
+  onAuthenticated: (result: AuthenticationResult) => void;
 };
 
 type AuthFormViewModel = {
@@ -1796,6 +2908,7 @@ function buildAuthPayload(mode: AuthMode, formData: FormData): Record<string, st
     firstName: getFormString(formData, 'firstName', true),
     lastName: getFormString(formData, 'lastName', true),
     dateOfBirth: getFormString(formData, 'dateOfBirth'),
+    ePin: getFormString(formData, 'ePin', true),
   };
 }
 
@@ -1951,6 +3064,42 @@ function RegistrationFields({
         {fieldErrors.dateOfBirth && (
           <p id="date-of-birth-error" className="mt-2 text-xs font-bold text-red-500">
             {fieldErrors.dateOfBirth}
+          </p>
+        )}
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+          E-PIN <span className="normal-case tracking-normal text-[rgb(var(--text-muted))]">(optional)</span>
+        </span>
+        <div className="relative">
+          <KeyRound className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" size={16} />
+          <input
+            name="ePin"
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            minLength={EPIN_LENGTH}
+            maxLength={EPIN_LENGTH}
+            pattern={EPIN_INPUT_PATTERN}
+            onInput={(event) => {
+              event.currentTarget.value = sanitizeEPin(event.currentTarget.value);
+            }}
+            aria-invalid={Boolean(fieldErrors.ePin)}
+            aria-describedby={fieldErrors.ePin ? 'registration-epin-error' : 'registration-epin-help'}
+            className={`w-full rounded-md border bg-[rgb(var(--page-bg))] py-3 pl-11 pr-4 text-sm font-semibold tracking-[0.18em] text-[rgb(var(--text-strong))] outline-none transition placeholder:tracking-normal placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+              fieldErrors.ePin ? 'border-red-500' : 'border-[rgb(var(--line))]'
+            }`}
+            placeholder={`${EPIN_LENGTH} digits`}
+          />
+        </div>
+        {fieldErrors.ePin ? (
+          <p id="registration-epin-error" className="mt-2 text-xs font-bold text-red-500">
+            {fieldErrors.ePin}
+          </p>
+        ) : (
+          <p id="registration-epin-help" className="mt-2 text-xs font-semibold text-[rgb(var(--text-muted))]">
+            Leave blank and a secure 6-digit E-PIN will be generated.
           </p>
         )}
       </label>
@@ -2112,9 +3261,9 @@ function AuthFeedbackMessages({ error, success }: { error: string; success: stri
       )}
 
       {success && (
-        <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500" role="status">
+        <output className="block rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500">
           {success}
-        </p>
+        </output>
       )}
     </>
   );
@@ -2200,11 +3349,10 @@ function AuthPopup({
         className="absolute inset-0 bg-black/65 backdrop-blur-sm"
         onClick={onClose}
       />
-      <section
-        role="dialog"
-        aria-modal="true"
+      <dialog
+        open
         aria-labelledby="auth-title"
-        className="relative w-full max-w-[460px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+        className="relative max-h-[calc(100vh-4rem)] w-full max-w-[460px] overflow-y-auto rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
       >
         <button
           type="button"
@@ -2260,7 +3408,7 @@ function AuthPopup({
         </form>
 
         <AuthModePrompt isLogin={view.isLogin} onModeChange={onModeChange} />
-      </section>
+      </dialog>
     </div>
   );
 }
@@ -2376,10 +3524,13 @@ function App() {
     if (typeof window === 'undefined') return null;
     return readStoredAuthSession();
   });
+  const [oneTimeEPin, setOneTimeEPin] = React.useState<string | null>(null);
   const [page, setPage] = React.useState<PageMode>(() => {
     if (typeof window === 'undefined') return 'home';
     return getPageFromPath(window.location.pathname);
   });
+
+  const [showExpiredToast, setShowExpiredToast] = React.useState(false);
 
   const openAuth = React.useCallback((mode: AuthMode) => {
     setAuthMode(mode);
@@ -2417,16 +3568,27 @@ function App() {
     navigateTo('admin');
   }, [navigateTo]);
 
-  const handleAuthenticated = React.useCallback((session: AuthSession) => {
+  const handleAuthenticated = React.useCallback((result: AuthenticationResult) => {
+    const { oneTimeEPin: generatedEPin, ...session } = result;
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
     setAuthSession(session);
+    setOneTimeEPin(generatedEPin);
   }, []);
 
   const handleLogout = React.useCallback(() => {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuthSession(null);
+    setOneTimeEPin(null);
     setAuthMode('login');
   }, []);
+
+  const triggerSessionExpired = React.useCallback(() => {
+    setShowExpiredToast(true);
+    setTimeout(() => {
+      handleLogout();
+      setShowExpiredToast(false);
+    }, 5000);
+  }, [handleLogout]);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -2450,6 +3612,25 @@ function App() {
     }
   }, [authSession]);
 
+  React.useEffect(() => {
+    if (!authSession) return;
+
+    const exp = getJwtExpiration(authSession.accessToken);
+    if (!exp) return;
+
+    const currentTime = Math.floor(Date.now() / 1000);
+    const timeUntilExpiry = exp - currentTime;
+
+    if (timeUntilExpiry <= 0) {
+      triggerSessionExpired();
+    } else {
+      const timerId = setTimeout(() => {
+        triggerSessionExpired();
+      }, timeUntilExpiry * 1000);
+      return () => clearTimeout(timerId);
+    }
+  }, [authSession, triggerSessionExpired]);
+
   if (!authSession) {
     return (
       <>
@@ -2471,6 +3652,28 @@ function App() {
 
   return (
     <>
+      {showExpiredToast && (
+        <div className="fixed bottom-6 right-6 z-[100] max-w-sm rounded-lg border border-red-500/30 bg-red-500/10 p-4 shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-bottom-5">
+          <div className="flex gap-3">
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500/20 text-red-500">
+              <Zap size={12} strokeWidth={3} />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-red-500">Session Expired</p>
+              <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">
+                For your security, you will be automatically redirected to the login screen in 5 seconds.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {oneTimeEPin && (
+        <OneTimeEPinNotice
+          ePin={oneTimeEPin}
+          onClose={() => setOneTimeEPin(null)}
+        />
+      )}
+
       <Header
         theme={theme}
         toggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
@@ -2492,10 +3695,10 @@ function App() {
             <Cta showTransactions={showTransactions} showPortfolio={showPortfolio} />
           </>
         )}
-        {page === 'accounts' && <AccountsPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'accounts' && authSession && <AccountsPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'profile' && <UserPage authSession={authSession} showHome={showHome} showAccounts={showAccounts} />}
-        {page === 'transactions' && <TransactionsPage showHome={showHome} />}
-        {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'transactions' && <TransactionsPage authSession={authSession} showHome={showHome} />}
+        {page === 'portfolio' && <PortfolioPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
       </main>
       {page === 'home' && <Footer />}
@@ -2509,9 +3712,11 @@ function App() {
     </>
   );
 }
+const rootElement = document.getElementById('root');
+if (!rootElement) throw new Error('Failed to find the root element');
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>,
+  </React.StrictMode>
 );
