@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.elsys.safebanking.model.AccountStatus;
+import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.repository.BankAccountRepository;
 import com.elsys.safebanking.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -39,6 +42,9 @@ class AccountControllerTests {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -63,6 +69,8 @@ class AccountControllerTests {
                 .andExpect(jsonPath("$.iban", matchesPattern(IBAN_PATTERN)))
                 .andExpect(jsonPath("$.name").value("Main Account"))
                 .andExpect(jsonPath("$.currency").value("BGN"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.createdAt").isNotEmpty())
                 .andExpect(jsonPath("$.balance").value(0));
     }
 
@@ -88,7 +96,22 @@ class AccountControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].iban").value(clientIban))
                 .andExpect(jsonPath("$[0].name").value("Main Account"))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$[0].createdAt").isNotEmpty())
                 .andExpect(jsonPath("$[1]").doesNotExist());
+    }
+
+    @Test
+    void accountsListShowsBlockedStatus() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.BLOCKED);
+
+        mockMvc.perform(get("/api/accounts")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].iban").value(iban))
+                .andExpect(jsonPath("$[0].status").value("BLOCKED"));
     }
 
     @Test
@@ -100,7 +123,8 @@ class AccountControllerTests {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.iban").value(iban))
-                .andExpect(jsonPath("$.name").value("Main Account"));
+                .andExpect(jsonPath("$.name").value("Main Account"))
+                .andExpect(jsonPath("$.createdAt").isNotEmpty());
     }
 
     @Test
@@ -143,6 +167,18 @@ class AccountControllerTests {
     }
 
     @Test
+    void recipientLookupRejectsBlankIban() throws Exception {
+        String token = register("client@example.com");
+
+        mockMvc.perform(get("/api/accounts/lookup")
+                        .param("iban", " ")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("IBAN is required."));
+    }
+
+    @Test
     void authenticatedUserCanUpdateOwnedAccountName() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
@@ -157,7 +193,7 @@ class AccountControllerTests {
     }
 
     @Test
-    void authenticatedUserCanSuspendOwnActiveAccount() throws Exception {
+void userCanSuspendOwnActiveAccount() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
 
@@ -169,13 +205,36 @@ class AccountControllerTests {
     }
 
     @Test
-    void authenticatedUserCanActivateOwnSuspendedAccount() throws Exception {
+    void userCanSuspendLegacyAccountWithoutCreatedAt() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
+        jdbcTemplate.update("update bank_accounts set created_at = null where iban = ?", iban);
 
         mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
                         .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(iban))
+                .andExpect(jsonPath("$.status").value("SUSPENDED"))
+                .andExpect(jsonPath("$.createdAt").doesNotExist());
+    }
+
+    @Test
+    void userCannotSuspendAccountThatIsNotActive() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.SUSPENDED);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Account State Conflict"));
+    }
+
+    @Test
+    void userCanActivateOwnSuspendedAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.SUSPENDED);
 
         mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
                         .header("Authorization", "Bearer " + token))
@@ -185,27 +244,43 @@ class AccountControllerTests {
     }
 
     @Test
-    void authenticatedUserCannotActivateBlockedAccount() throws Exception {
+    void userCannotActivateAccountThatIsAlreadyActive() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
-        var account = bankAccountRepository.findById(iban).orElseThrow();
-        account.block();
-        bankAccountRepository.saveAndFlush(account);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Account State Conflict"));
+    }
+
+    @Test
+    void userCannotSelfActivateBlockedAccount() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        setAccountStatus(iban, AccountStatus.BLOCKED);
 
         mockMvc.perform(put("/api/users/accounts/{iban}/activate", iban)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error").value("Account Blocked"));
+                .andExpect(jsonPath("$.error").value("Forbidden"));
     }
 
     @Test
-    void authenticatedUserCannotSuspendAnotherUsersAccount() throws Exception {
+    void userCannotSuspendOrActivateAnotherUsersAccount() throws Exception {
         String clientToken = register("client@example.com");
         String otherToken = register("other@example.com");
-        String otherIban = createAccount(otherToken, "Other Account", "EUR");
+        String clientIban = createAccount(clientToken, "Main Account", "BGN");
 
-        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", otherIban)
-                        .header("Authorization", "Bearer " + clientToken))
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", clientIban)
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+
+        setAccountStatus(clientIban, AccountStatus.SUSPENDED);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/activate", clientIban)
+                        .header("Authorization", "Bearer " + otherToken))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"));
     }
@@ -265,6 +340,16 @@ class AccountControllerTests {
 
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString());
         return response.get("iban").asText();
+    }
+
+    private void setAccountStatus(String iban, AccountStatus status) {
+        BankAccount account = bankAccountRepository.findById(iban).orElseThrow();
+        switch (status) {
+            case ACTIVE -> account.activate();
+            case SUSPENDED -> account.suspend();
+            case BLOCKED -> account.block();
+        }
+        bankAccountRepository.saveAndFlush(account);
     }
 
     private String json(Object value) throws Exception {

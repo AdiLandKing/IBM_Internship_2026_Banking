@@ -6,6 +6,7 @@ import com.elsys.safebanking.model.AccountStatus;
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +55,8 @@ class BankAccountRepositoryTest {
         assertThat(saved.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(saved.getCurrency()).isEqualTo("EUR");
         assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(saved.getCreatedAt()).isNotNull();
+        assertThat(saved.getUpdatedAt()).isNotNull();
         assertThat(saved.getOwner().getId()).isEqualTo(userA.getId());
 
         String persistedName = jdbcTemplate.queryForObject(
@@ -71,9 +74,15 @@ class BankAccountRepositoryTest {
                 String.class,
                 saved.getIban()
         );
+        Timestamp persistedCreatedAt = jdbcTemplate.queryForObject(
+                "select created_at from bank_accounts where iban = ?",
+                Timestamp.class,
+                saved.getIban()
+        );
         assertThat(persistedName).isEqualTo("Savings");
         assertThat(legacyName).isNull();
         assertThat(persistedStatus).isEqualTo("ACTIVE");
+        assertThat(persistedCreatedAt).isNotNull();
     }
 
     @Test
