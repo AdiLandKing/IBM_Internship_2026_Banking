@@ -20,23 +20,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Verifies that ApiExceptionHandler maps each custom exception to the
- * correct HTTP status and ApiError JSON shape.
- *
- * Uses a minimal stub controller so the test has no dependency on any
- * real service or repository bean.
- */
 @WebMvcTest
 @AutoConfigureMockMvc(addFilters = false)
 @Import({ApiExceptionHandlerTests.StubController.class, ApiExceptionHandler.class})
 class ApiExceptionHandlerTests {
 
-    // ── Minimal stub controller — one endpoint per exception ─────────────────
-
     @RestController
     static class StubController {
-
         @GetMapping("/stub/account-not-found")
         void accountNotFound() {
             throw new AccountNotFoundException("Account not found");
@@ -63,15 +53,11 @@ class ApiExceptionHandlerTests {
         }
     }
 
-    // ── Beans required by Spring MVC / security auto-configuration ───────────
-
     @MockitoBean
     AppUserDetailsService appUserDetailsService;
 
     @MockitoBean
     JwtService jwtService;
-
-    // ── Beans required by the real controllers loaded by @WebMvcTest ─────────
 
     @MockitoBean
     UserService userService;
@@ -84,8 +70,6 @@ class ApiExceptionHandlerTests {
 
     @Autowired
     MockMvc mockMvc;
-
-    // ── Tests ─────────────────────────────────────────────────────────────────
 
     @Test
     void accountNotFoundException_returns404() throws Exception {
