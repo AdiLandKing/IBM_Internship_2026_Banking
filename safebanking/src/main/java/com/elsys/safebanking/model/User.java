@@ -1,6 +1,7 @@
 package com.elsys.safebanking.model;
 
 import com.elsys.safebanking.validation.EPinPolicy;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -8,16 +9,21 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
+import lombok.Setter;
 
-@Getter
 @Entity
 @Table(name = "users")
+@Getter
+@Setter
 public class User {
 
     @Column(nullable = false, columnDefinition = "boolean default true")
@@ -55,6 +61,9 @@ public class User {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @OneToMany(mappedBy = "owner", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<BankAccount> bankAccounts = new ArrayList<>();
+
     protected User() {
     }
 
@@ -78,7 +87,6 @@ public class User {
         this.dateOfBirth = dateOfBirth;
         this.role = role;
     }
-    
 
     @PrePersist
     void onCreate() {
@@ -90,6 +98,28 @@ public class User {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
+    }
+
+    public void addBankAccount(BankAccount bankAccount) {
+        if (bankAccount == null) {
+            return;
+        }
+        if (!bankAccounts.contains(bankAccount)) {
+            bankAccounts.add(bankAccount);
+        }
+        if (bankAccount.getOwner() != this) {
+            bankAccount.setOwner(this);
+        }
+    }
+
+    public void removeBankAccount(BankAccount bankAccount) {
+        if (bankAccount == null) {
+            return;
+        }
+        bankAccounts.remove(bankAccount);
+        if (this.equals(bankAccount.getOwner())) {
+            bankAccount.setOwner(null);
+        }
     }
 
     public void updateProfile(String firstName, String lastName) {

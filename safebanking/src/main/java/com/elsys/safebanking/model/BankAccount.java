@@ -14,15 +14,18 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Setter;
 
-@Getter
 @Entity
 @Table(name = "bank_accounts")
+@Getter
+@Setter
 public class BankAccount {
 
     @Id
-    @Column(nullable = false, unique = true, length = 18)
+    @Column(nullable = false, unique = true, length = 34)
     private String iban;
 
     @Column(nullable = false, length = 80)
@@ -47,6 +50,7 @@ public class BankAccount {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @Setter(AccessLevel.NONE)
     private User owner;
 
     @Column(updatable = false)
@@ -59,11 +63,23 @@ public class BankAccount {
     }
 
     public BankAccount(String iban, String name, String currency, User owner) {
+        this(name, iban, BigDecimal.ZERO, currency, owner);
+    }
+
+    public BankAccount(String name, String iban, BigDecimal balance, String currency, User owner) {
         this.iban = iban;
         this.name = requireAccountName(name);
-        this.balance = BigDecimal.ZERO;
+        this.balance = balance == null ? BigDecimal.ZERO : balance;
         this.currency = currency;
         this.status = AccountStatus.ACTIVE;
+        this.owner = owner;
+    }
+
+    public void setOwner(User owner) {
+        if (this.owner == owner) {
+            return;
+        }
+
         this.owner = owner;
     }
 
