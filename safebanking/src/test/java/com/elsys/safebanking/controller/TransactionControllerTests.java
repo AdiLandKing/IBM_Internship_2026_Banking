@@ -3,6 +3,8 @@ package com.elsys.safebanking.controller;
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
 import com.elsys.safebanking.model.TransactionStatus;
+import com.elsys.safebanking.repository.BankingTransactionRepository;
+import com.elsys.safebanking.repository.UserRepository;
 import com.elsys.safebanking.service.AppUserDetailsService;
 import com.elsys.safebanking.service.JwtService;
 import com.elsys.safebanking.service.TransferService;
@@ -35,6 +37,12 @@ class TransactionControllerTests {
 
     @MockitoBean
     private AppUserDetailsService appUserDetailsService;
+
+    @MockitoBean
+    private BankingTransactionRepository transactionRepository;
+
+    @MockitoBean
+    private UserRepository userRepository;
 
     @MockitoBean
     private JwtService jwtService;
