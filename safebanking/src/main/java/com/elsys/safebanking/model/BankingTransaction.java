@@ -75,6 +75,9 @@ public class BankingTransaction {
         this.sourceAccount = builder.sourceAccount;
         this.destinationAccount = builder.destinationAccount;
         this.amount = builder.amount;
+        this.creditedAmount = builder.creditedAmount;
+        this.sourceCurrency = builder.sourceCurrency;
+        this.destinationCurrency = builder.destinationCurrency;
         this.reason = builder.reason;
         this.timeStamp = builder.timeStamp;
         this.exchangeRateUsed = builder.exchangeRateUsed;
@@ -90,6 +93,9 @@ public class BankingTransaction {
         private BankAccount sourceAccount;
         private BankAccount destinationAccount;
         private BigDecimal amount;
+        private BigDecimal creditedAmount;
+        private String sourceCurrency;
+        private String destinationCurrency;
         private String reason;
         private Instant timeStamp;
         private BigDecimal exchangeRateUsed;
@@ -112,6 +118,26 @@ public class BankingTransaction {
 
         public Builder amount(BigDecimal amount) {
             this.amount = amount;
+            return this;
+        }
+
+        public Builder debitedAmount(BigDecimal amount) {
+            this.amount = amount;
+            return this;
+        }
+
+        public Builder creditedAmount(BigDecimal creditedAmount) {
+            this.creditedAmount = creditedAmount;
+            return this;
+        }
+
+        public Builder sourceCurrency(String sourceCurrency) {
+            this.sourceCurrency = sourceCurrency;
+            return this;
+        }
+
+        public Builder destinationCurrency(String destinationCurrency) {
+            this.destinationCurrency = destinationCurrency;
             return this;
         }
 
