@@ -1,5 +1,6 @@
 package com.elsys.safebanking.model;
 
+import com.elsys.safebanking.validation.EPinPolicy;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,13 +13,15 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
-
 import lombok.Getter;
 
 @Getter
 @Entity
 @Table(name = "users")
 public class User {
+
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private boolean active = true;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -38,6 +41,9 @@ public class User {
 
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
+
+    @Column(name = "e_pin", length = EPinPolicy.HASHED_COLUMN_LENGTH)
+    private String ePinHash;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'USER'")
@@ -72,6 +78,7 @@ public class User {
         this.dateOfBirth = dateOfBirth;
         this.role = role;
     }
+    
 
     @PrePersist
     void onCreate() {
@@ -92,5 +99,9 @@ public class User {
 
     public void updateRole(UserRole role) {
         this.role = role;
+    }
+
+    public void updateEPinHash(String ePinHash) {
+        this.ePinHash = ePinHash;
     }
 }
