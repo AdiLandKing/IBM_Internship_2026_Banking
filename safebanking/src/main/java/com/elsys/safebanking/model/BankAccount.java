@@ -110,9 +110,6 @@ public class BankAccount {
     @PreUpdate
     private void onUpdate() {
         validateRequiredFields();
-        if (createdAt == null) {
-            createdAt = Instant.now();
-        }
         updatedAt = Instant.now();
     }
 

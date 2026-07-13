@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -41,6 +42,9 @@ class AccountControllerTests {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -186,6 +190,20 @@ class AccountControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.iban").value(iban))
                 .andExpect(jsonPath("$.status").value("SUSPENDED"));
+    }
+
+    @Test
+    void userCanSuspendLegacyAccountWithoutCreatedAt() throws Exception {
+        String token = register("client@example.com");
+        String iban = createAccount(token, "Main Account", "BGN");
+        jdbcTemplate.update("update bank_accounts set created_at = null where iban = ?", iban);
+
+        mockMvc.perform(put("/api/users/accounts/{iban}/suspend", iban)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.iban").value(iban))
+                .andExpect(jsonPath("$.status").value("SUSPENDED"))
+                .andExpect(jsonPath("$.createdAt").doesNotExist());
     }
 
     @Test

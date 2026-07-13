@@ -74,14 +74,15 @@ public class AccountService {
 
     @Transactional(readOnly = true)
     public RecipientAccountResponse getRecipientAccount(String iban) {
-        return bankAccountRepository.findById(iban.trim().toUpperCase())
+        String normalizedIban = normalizeIban(iban);
+        return bankAccountRepository.findById(normalizedIban)
                 .map(RecipientAccountResponse::from)
-                .orElseThrow(() -> new AccountNotFoundException(iban));
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
     }
 
     @Transactional
     public BankAccountResponse blockAccount(String iban) {
-        String normalizedIban = iban.trim().toUpperCase();
+        String normalizedIban = normalizeIban(iban);
         BankAccount account = bankAccountRepository.findByIban(normalizedIban)
                 .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
         if (account.getStatus() == AccountStatus.BLOCKED) {
@@ -94,7 +95,7 @@ public class AccountService {
 
     @Transactional
     public BankAccountResponse unblockAccount(String iban) {
-        String normalizedIban = iban.trim().toUpperCase();
+        String normalizedIban = normalizeIban(iban);
         BankAccount account = bankAccountRepository.findByIban(normalizedIban)
                 .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
         if (account.getStatus() != AccountStatus.BLOCKED) {
@@ -164,6 +165,9 @@ public class AccountService {
     }
 
     private String normalizeIban(String iban) {
+        if (iban == null || iban.isBlank()) {
+            throw new InvalidRequestException("IBAN is required.");
+        }
         return iban.trim().toUpperCase();
     }
 }
