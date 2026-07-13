@@ -167,6 +167,18 @@ class AccountControllerTests {
     }
 
     @Test
+    void recipientLookupRejectsBlankIban() throws Exception {
+        String token = register("client@example.com");
+
+        mockMvc.perform(get("/api/accounts/lookup")
+                        .param("iban", " ")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("IBAN is required."));
+    }
+
+    @Test
     void authenticatedUserCanUpdateOwnedAccountName() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
