@@ -143,7 +143,7 @@ mvn spring-boot:run
 
 The application is served at **http://localhost:8080**.
 
-### 4. Stripe webhooks (optional, for top-up)
+### 4. Stripe webhooks
 
 Forward Stripe events to your local server using the Stripe CLI:
 
