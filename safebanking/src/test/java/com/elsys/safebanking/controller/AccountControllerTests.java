@@ -193,7 +193,7 @@ class AccountControllerTests {
     }
 
     @Test
-    void userCanSuspendOwnActiveAccount() throws Exception {
+void userCanSuspendOwnActiveAccount() throws Exception {
         String token = register("client@example.com");
         String iban = createAccount(token, "Main Account", "BGN");
 
