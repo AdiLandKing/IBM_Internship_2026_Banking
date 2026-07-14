@@ -18,12 +18,6 @@ const recentTransactions = [
   { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
 ];
 
-const holdings = [
-  { name: 'Global Equity Mandate', category: 'Equities', value: '$2.51M', allocation: '52%', change: '+3.1%' },
-  { name: 'Municipal Income Ladder', category: 'Fixed Income', value: '$1.35M', allocation: '28%', change: '+0.8%' },
-  { name: 'Private Alternatives Fund', category: 'Alternatives', value: '$964K', allocation: '20%', change: '+1.6%' },
-];
-
 const adminMetrics = [
   { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
   { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
@@ -47,20 +41,6 @@ const adminMenus: { id: AdminMenuId; label: string; description: string; icon: L
   { id: 'access', label: 'User Access', description: 'Create users or grant admin access', icon: ShieldCheck },
 ];
 
-const adminUsers = [
-  { name: 'Elena Hamilton', email: 'elena@hamilton-office.com', role: 'Client', status: 'Active', lastSeen: 'Today' },
-  { name: 'Marcus Mori', email: 'marcus@mori-capital.com', role: 'Client', status: 'Pending KYC', lastSeen: 'Yesterday' },
-  { name: 'Nadia Ainsley', email: 'nadia@ainsley.co', role: 'Advisor', status: 'Active', lastSeen: '12 min ago' },
-  { name: 'Theo Grant', email: 'theo.grant@safebank.com', role: 'Admin', status: 'Active', lastSeen: '3 min ago' },
-];
-
-const transferLogs = [
-  { id: 'TRF-90421', user: 'Hamilton Family Office', amount: '$48,250.00', type: 'Domestic wire', status: 'Completed', date: 'Jul 02, 2026' },
-  { id: 'TRF-90403', user: 'Zurich Custody Account', amount: '$86,000.00', type: 'International wire', status: 'Reviewed', date: 'Jun 28, 2026' },
-  { id: 'TRF-90377', user: 'SAFE Bank Reserve', amount: '$250,000.00', type: 'Internal transfer', status: 'Completed', date: 'Jun 25, 2026' },
-  { id: 'TRF-90312', user: 'Mori Capital Trust', amount: '$19,430.00', type: 'Portfolio funding', status: 'Flagged', date: 'Jun 22, 2026' },
-];
-
 const accessRequests = [
   { name: 'Iris Kovan', email: 'iris.kovan@safebank.com', request: 'Admin approval', submitted: 'Today' },
   { name: 'Victor Lane', email: 'victor@example.com', request: 'Client account creation', submitted: 'Yesterday' },
@@ -74,20 +54,79 @@ type ClientAccount = {
   iban: string;
   balance: number;
   currency: string;
+  status: AccountStatus;
   opened: string;
   branch: string;
 };
+
+type AccountStatus = 'ACTIVE' | 'SUSPENDED' | 'BLOCKED';
 
 type AccountResponse = {
   iban: string;
   name: string;
   balance: number | string;
   currency: string;
+  status: AccountStatus;
+  createdAt?: string | null;
+};
+
+type RecipientAccountResponse = {
+  iban: string;
+  currency: string;
+};
+
+type ApiPage<T> = {
+  content: T[];
+  totalElements?: number;
+  totalPages?: number;
+};
+
+type AdminUserResponse = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'USER' | 'ADMIN';
+  accountCount: number;
+  active: boolean;
+  accounts: AccountResponse[];
+};
+
+type AdminTransactionResponse = {
+  transactionId: number;
+  sourceIban: string;
+  destinationIban: string;
+  amount: number | string;
+  sourceCurrency: string;
+  creditedAmount: number | string;
+  destinationCurrency: string;
+  reason: string;
+  timeStamp: string;
+  status: string;
+  exchangeRateUsed: number | string;
 };
 
 type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
 
 const ACCOUNT_CURRENCIES: AccountCurrency[] = ['BGN', 'EUR', 'USD', 'GBP'];
+
+type PortfolioHolding = {
+  name: string;
+  category: string;
+  value: string;
+  allocation: string;
+  allocationWidth: string;
+  status: string;
+};
+
+type TransferDraft = {
+  sourceAccountIban: string;
+  destinationAccountIban: string;
+  amount: string;
+  currency: string;
+  reason: string;
+};
+
+type TransferValidationErrors = Partial<Record<keyof TransferDraft, string>>;
 
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
@@ -374,6 +413,21 @@ async function saveEPin(
   }
 }
 
+async function verifyEPin(authSession: AuthSession, ePin: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/users/e-pin/verify`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ePin }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to verify E-PIN.'));
+  }
+}
+
 function accountResponseToClientAccount(account: AccountResponse): ClientAccount {
   return {
     id: account.iban,
@@ -382,9 +436,21 @@ function accountResponseToClientAccount(account: AccountResponse): ClientAccount
     iban: account.iban,
     balance: Number(account.balance),
     currency: account.currency,
-    opened: 'Not available',
+    status: account.status,
+    opened: formatProfileDate(account.createdAt ?? null, 'Not available'),
     branch: 'Sofia Private Office',
   };
+}
+
+function getAccountStatusActionLabel(
+  isUpdating: boolean,
+  isBlocked: boolean,
+  isSuspended: boolean,
+) {
+  if (isUpdating) return 'Updating...';
+  if (isBlocked) return 'Blocked by admin';
+  if (isSuspended) return 'Unlock account';
+  return 'Lock account';
 }
 
 async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]> {
@@ -398,6 +464,18 @@ async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]>
 
   const accounts = await response.json() as AccountResponse[];
   return accounts.map(accountResponseToClientAccount);
+}
+
+async function lookupRecipientAccount(authSession: AuthSession, iban: string): Promise<RecipientAccountResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/accounts/lookup?iban=${encodeURIComponent(iban)}`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Recipient IBAN was not found.'));
+  }
+
+  return response.json();
 }
 
 async function createBankAccount(
@@ -440,6 +518,72 @@ async function updateBankAccountName(
   }
 
   return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+async function updateBankAccountStatus(
+  authSession: AuthSession,
+  iban: string,
+  action: 'suspend' | 'activate',
+): Promise<ClientAccount> {
+  const response = await fetch(`${API_BASE_URL}/api/users/accounts/${encodeURIComponent(iban)}/${action}`, {
+    method: 'PUT',
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(
+      response,
+      action === 'suspend' ? 'Unable to lock account.' : 'Unable to unlock account.',
+    ));
+  }
+
+  return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+async function fetchAdminUsers(authSession: AuthSession): Promise<AdminUserResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load users.'));
+  }
+
+  const page = await response.json() as ApiPage<AdminUserResponse>;
+  return page.content ?? [];
+}
+
+async function fetchAdminTransactions(authSession: AuthSession): Promise<AdminTransactionResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/transactions`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load transfer logs.'));
+  }
+
+  const page = await response.json() as ApiPage<AdminTransactionResponse>;
+  return page.content ?? [];
+}
+
+async function updateAdminAccountStatus(
+  authSession: AuthSession,
+  iban: string,
+  action: 'block' | 'unblock',
+): Promise<AccountResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/accounts/${encodeURIComponent(iban)}/${action}`, {
+    method: 'PUT',
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(
+      response,
+      action === 'block' ? 'Unable to block account.' : 'Unable to unblock account.',
+    ));
+  }
+
+  return response.json();
 }
 
 
@@ -710,6 +854,75 @@ function formatAccountBalance(account: ClientAccount) {
   }).format(account.balance);
 }
 
+function formatCurrencyAmount(value: number, currency: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+function getPortfolioTotalLabel(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return formatCurrencyAmount(0, 'EUR');
+
+  const currencies = new Set(accounts.map((account) => account.currency));
+  if (currencies.size > 1) {
+    return 'Multi-currency';
+  }
+
+  const [currency] = currencies;
+  const total = accounts.reduce((sum, account) => sum + account.balance, 0);
+  return formatCurrencyAmount(total, currency);
+}
+
+function getPortfolioRiskProfile(accounts: ClientAccount[]) {
+  if (accounts.length === 0) return 'Not set';
+  if (accounts.length === 1) return 'Cash';
+  return new Set(accounts.map((account) => account.currency)).size > 1 ? 'Diversified cash' : 'Cash reserve';
+}
+
+function getPortfolioHoldings(accounts: ClientAccount[]): PortfolioHolding[] {
+  const positiveTotal = accounts.reduce((sum, account) => sum + Math.max(account.balance, 0), 0);
+
+  return accounts.map((account) => {
+    const allocation = positiveTotal > 0 ? Math.round((Math.max(account.balance, 0) / positiveTotal) * 100) : 0;
+    const allocationLabel = `${allocation}%`;
+
+    return {
+      name: account.name,
+      category: `${account.currency} Account`,
+      value: formatAccountBalance(account),
+      allocation: allocationLabel,
+      allocationWidth: allocationLabel,
+      status: account.balance > 0 ? 'Funded' : 'Awaiting funds',
+    };
+  });
+}
+
+function getPortfolioCurrencyAllocations(accounts: ClientAccount[]): PortfolioHolding[] {
+  const totalsByCurrency = accounts.reduce((totals, account) => {
+    totals.set(account.currency, (totals.get(account.currency) ?? 0) + account.balance);
+    return totals;
+  }, new Map<string, number>());
+  const positiveTotal = Array.from(totalsByCurrency.values()).reduce((sum, value) => sum + Math.max(value, 0), 0);
+
+  return Array.from(totalsByCurrency.entries())
+    .sort(([firstCurrency], [secondCurrency]) => firstCurrency.localeCompare(secondCurrency))
+    .map(([currency, value]) => {
+      const allocation = positiveTotal > 0 ? Math.round((Math.max(value, 0) / positiveTotal) * 100) : 0;
+      const allocationLabel = `${allocation}%`;
+
+      return {
+        name: currency,
+        category: currency,
+        value: formatCurrencyAmount(value, currency),
+        allocation: allocationLabel,
+        allocationWidth: allocationLabel,
+        status: `${currency} balance`,
+      };
+    });
+}
+
 function maskIban(iban: string) {
   return `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}`;
 }
@@ -735,13 +948,20 @@ function AccountsPage({
   const [editingName, setEditingName] = React.useState(false);
   const [draftName, setDraftName] = React.useState('');
   const [isSavingName, setIsSavingName] = React.useState(false);
+  const [isUpdatingAccountStatus, setIsUpdatingAccountStatus] = React.useState(false);
   const [isIbanVisible, setIsIbanVisible] = React.useState(false);
   const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
-  const [lockedAccountIds, setLockedAccountIds] = React.useState<Set<string>>(() => new Set());
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
   const selectedName = selectedAccount?.name ?? '';
-  const isSelectedAccountLocked = selectedAccount ? lockedAccountIds.has(selectedAccount.id) : false;
+  const isSelectedAccountActive = selectedAccount?.status === 'ACTIVE';
+  const isSelectedAccountSuspended = selectedAccount?.status === 'SUSPENDED';
+  const isSelectedAccountBlocked = selectedAccount?.status === 'BLOCKED';
+  const selectedAccountStatusActionLabel = getAccountStatusActionLabel(
+    isUpdatingAccountStatus,
+    isSelectedAccountBlocked,
+    isSelectedAccountSuspended,
+  );
   const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
 
   const loadAccounts = React.useCallback(async (preferredAccountId?: string) => {
@@ -767,7 +987,7 @@ function AccountsPage({
   }, [authSession]);
 
   React.useEffect(() => {
-    void loadAccounts();
+    runAsyncAction(() => loadAccounts());
   }, [loadAccounts]);
 
   function selectAccount(account: ClientAccount) {
@@ -846,17 +1066,28 @@ function AccountsPage({
     }
   }
 
-  function toggleSelectedAccountLock() {
+  async function toggleSelectedAccountLock() {
     if (!selectedAccount) return;
-    setLockedAccountIds((current) => {
-      const next = new Set(current);
-      if (next.has(selectedAccount.id)) {
-        next.delete(selectedAccount.id);
-      } else {
-        next.add(selectedAccount.id);
-      }
-      return next;
-    });
+    if (isSelectedAccountBlocked) {
+      setAccountActionError('Blocked accounts cannot be unlocked by the account owner.');
+      return;
+    }
+
+    const action = isSelectedAccountSuspended ? 'activate' : 'suspend';
+    setIsUpdatingAccountStatus(true);
+    setAccountActionError('');
+    setAccountSuccess('');
+    try {
+      const updatedAccount = await updateBankAccountStatus(authSession, selectedAccount.iban, action);
+      setAccounts((current) => current.map((account) => (
+        account.id === updatedAccount.id ? updatedAccount : account
+      )));
+      setAccountSuccess(action === 'suspend' ? 'Account locked.' : 'Account unlocked.');
+    } catch (statusError) {
+      setAccountActionError(statusError instanceof Error ? statusError.message : 'Unable to update account status.');
+    } finally {
+      setIsUpdatingAccountStatus(false);
+    }
   }
 
   return (
@@ -925,7 +1156,7 @@ function AccountsPage({
             <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
             <button
               type="button"
-              onClick={() => void loadAccounts()}
+              onClick={() => runAsyncAction(() => loadAccounts())}
               className="mt-5 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
             >
               Retry
@@ -958,7 +1189,7 @@ function AccountsPage({
               <div className="divide-y divide-[rgb(var(--line))]">
                 {accounts.map((account) => {
                   const isSelected = account.id === selectedAccount.id;
-                  const isLocked = lockedAccountIds.has(account.id);
+                  const isLocked = account.status !== 'ACTIVE';
                   const AccountIcon = isLocked ? LockKeyhole : CreditCard;
                   return (
                     <button
@@ -983,7 +1214,14 @@ function AccountsPage({
                         />
                       </div>
                       <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
-                      <p className="mt-2 text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                        {account.status !== 'ACTIVE' && (
+                          <span className="rounded-full border border-[rgb(var(--line))] px-2 py-0.5 text-[0.62rem] font-extrabold uppercase tracking-[0.14em] text-[rgb(var(--gold))]">
+                            {account.status}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -1063,14 +1301,20 @@ function AccountsPage({
                 </div>
               </div>
 
-              <dl className="grid gap-px overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--line))] sm:grid-cols-2">
+              <dl className="grid overflow-hidden rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] sm:grid-cols-2">
                 {[
                   ['Currency', selectedAccount.currency],
+                  ['Status', selectedAccount.status],
                   ['Account holder', 'Primary client'],
                   ['Opened', selectedAccount.opened],
                   ['Servicing branch', selectedAccount.branch],
-                ].map(([label, value]) => (
-                  <div key={label} className="bg-[rgb(var(--page-bg))] px-5 py-4">
+                ].map(([label, value], index) => (
+                  <div
+                    key={label}
+                    className={`bg-[rgb(var(--page-bg))] px-5 py-4 ${
+                      index < 3 ? 'border-b border-[rgb(var(--line))]' : ''
+                    } ${index % 2 === 0 ? 'sm:border-r sm:border-[rgb(var(--line))]' : ''}`}
+                  >
                     <dt className="text-[0.6rem] font-extrabold uppercase tracking-[0.22em] text-[rgb(var(--text-muted))]">{label}</dt>
                     <dd className="mt-2 text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
                   </div>
@@ -1081,11 +1325,11 @@ function AccountsPage({
                 <button
                   type="button"
                   onClick={showTransactions}
-                  disabled={isSelectedAccountLocked}
+                  disabled={!isSelectedAccountActive}
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
                 >
                   <Zap size={16} strokeWidth={1.8} />
-                  {isSelectedAccountLocked ? 'Account locked' : 'Transfer from this account'}
+                  {isSelectedAccountActive ? 'Transfer from this account' : 'Account locked'}
                 </button>
                 <button
                   type="button"
@@ -1097,13 +1341,14 @@ function AccountsPage({
                 </button>
                 <button
                   type="button"
-                  onClick={toggleSelectedAccountLock}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                  onClick={() => runAsyncAction(toggleSelectedAccountLock)}
+                  disabled={isUpdatingAccountStatus || isSelectedAccountBlocked}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSelectedAccountLocked
+                  {isSelectedAccountSuspended
                     ? <Unlock size={16} strokeWidth={1.8} />
                     : <LockKeyhole size={16} strokeWidth={1.8} />}
-                  {isSelectedAccountLocked ? 'Unlock account' : 'Lock account'}
+                  {selectedAccountStatusActionLabel}
                 </button>
               </div>
             </article>
@@ -1621,7 +1866,282 @@ function UserPage({
   );
 }
 
-function TransactionsPage({ showHome }: { showHome: () => void }) {
+const EMPTY_TRANSFER_DRAFT: TransferDraft = {
+  sourceAccountIban: '',
+  destinationAccountIban: '',
+  amount: '',
+  currency: 'EUR',
+  reason: '',
+};
+
+type TransactionsPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+}>;
+
+function getTransferValidationErrors(
+  draft: TransferDraft,
+  accounts: ClientAccount[],
+  recipientAccount: RecipientAccountResponse | null,
+): TransferValidationErrors {
+  const validationErrors: TransferValidationErrors = {};
+  const amount = Number(draft.amount);
+  const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
+
+  if (!draft.sourceAccountIban) {
+    validationErrors.sourceAccountIban = 'Choose a source account.';
+  } else if (!sourceAccount) {
+    validationErrors.sourceAccountIban = 'Choose one of your available accounts.';
+  }
+
+  if (!draft.destinationAccountIban.trim()) {
+    validationErrors.destinationAccountIban = 'Recipient IBAN is required.';
+  } else if (recipientAccount?.iban !== draft.destinationAccountIban.trim().toUpperCase()) {
+    validationErrors.destinationAccountIban = 'Enter a valid recipient IBAN from SAFE Bank.';
+  }
+
+  if (!draft.amount.trim()) {
+    validationErrors.amount = 'Amount is required.';
+  } else if (!Number.isFinite(amount) || amount <= 0) {
+    validationErrors.amount = 'Amount must be greater than zero.';
+  } else if (canCheckTransferBalance(sourceAccount, recipientAccount) && amount > sourceAccount.balance) {
+    validationErrors.amount = 'Insufficient funds in the selected account.';
+  }
+
+  if (!draft.reason.trim()) {
+    validationErrors.reason = 'Reason is required.';
+  }
+
+  return validationErrors;
+}
+
+function canCheckTransferBalance(
+  sourceAccount: ClientAccount | null,
+  recipientAccount: RecipientAccountResponse | null,
+): sourceAccount is ClientAccount {
+  return Boolean(sourceAccount?.currency && sourceAccount.currency === recipientAccount?.currency);
+}
+
+function getTransferAmountLabel(draft: TransferDraft) {
+  if (!draft.amount) return formatCurrencyAmount(0, draft.currency);
+  return formatCurrencyAmount(Number(draft.amount), draft.currency);
+}
+
+function getDailyLimitLabel(sourceAccount: ClientAccount | null) {
+  return formatCurrencyAmount(500000, sourceAccount?.currency ?? 'EUR');
+}
+
+function getCurrencyCheckLabel(
+  recipientAccount: RecipientAccountResponse | null,
+  canCheckSourceBalance: boolean,
+) {
+  if (!recipientAccount) return '';
+  let balanceMessage = ' · Balance check skipped for different currencies';
+  if (canCheckSourceBalance) {
+    balanceMessage = '';
+  }
+  return `Recipient currency: ${recipientAccount.currency}${balanceMessage}`;
+}
+
+function getTransferSummaryRows(
+  draft: TransferDraft,
+  sourceAccount: ClientAccount | null,
+) {
+  let sourceAccountLabel = 'Not selected';
+  if (sourceAccount) {
+    sourceAccountLabel = `${sourceAccount.name} · ${maskIban(sourceAccount.iban)}`;
+  }
+
+  return [
+    ['From', sourceAccountLabel],
+    ['Recipient', draft.destinationAccountIban],
+    ['Amount', getTransferAmountLabel(draft)],
+    ['Currency', draft.currency],
+    ['Reason', draft.reason],
+  ];
+}
+
+function useTransferAccounts(
+  authSession: AuthSession,
+  setDraft: React.Dispatch<React.SetStateAction<TransferDraft>>,
+) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(true);
+  const [accountsError, setAccountsError] = React.useState('');
+
+  const loadTransferAccounts = React.useCallback(async () => {
+    setIsLoadingAccounts(true);
+    setAccountsError('');
+    try {
+      const loadedAccounts = await fetchAccounts(authSession);
+      setAccounts(loadedAccounts);
+      setDraft((currentDraft) => {
+        if (currentDraft.sourceAccountIban || loadedAccounts.length === 0) return currentDraft;
+        const firstAccount = loadedAccounts[0];
+        return {
+          ...currentDraft,
+          sourceAccountIban: firstAccount.iban,
+          currency: firstAccount.currency,
+        };
+      });
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : 'Unable to load accounts.');
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, [authSession, setDraft]);
+
+  React.useEffect(() => {
+    loadTransferAccounts();
+  }, [loadTransferAccounts]);
+
+  return {
+    accounts,
+    accountsError,
+    isLoadingAccounts,
+    loadTransferAccounts,
+  };
+}
+
+function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
+  const [draft, setDraft] = React.useState<TransferDraft>(EMPTY_TRANSFER_DRAFT);
+  const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
+  const {
+    accounts,
+    accountsError,
+    isLoadingAccounts,
+    loadTransferAccounts,
+  } = useTransferAccounts(authSession, setDraft);
+  const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
+  const [recipientLookupError, setRecipientLookupError] = React.useState('');
+  const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
+  const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
+  const [ePin, setEPin] = React.useState('');
+  const [ePinError, setEPinError] = React.useState('');
+  const [transferNotice, setTransferNotice] = React.useState('');
+  const [isVerifyingEPin, setIsVerifyingEPin] = React.useState(false);
+
+  const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
+  const totalBalanceLabel = getPortfolioTotalLabel(accounts);
+  const dailyLimitLabel = getDailyLimitLabel(sourceAccount);
+  const canCheckSourceBalance = canCheckTransferBalance(sourceAccount, recipientAccount);
+  const currencyCheckLabel = getCurrencyCheckLabel(recipientAccount, canCheckSourceBalance);
+
+  function updateDraft(field: keyof TransferDraft, value: string) {
+    setTransferNotice('');
+    if (field === 'destinationAccountIban') {
+      setRecipientAccount(null);
+      setRecipientLookupError('');
+    }
+    setFieldErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+    setDraft((currentDraft) => {
+      if (field !== 'sourceAccountIban') {
+        return { ...currentDraft, [field]: value };
+      }
+      const nextAccount = accounts.find((account) => account.iban === value);
+      return {
+        ...currentDraft,
+        sourceAccountIban: value,
+        currency: recipientAccount?.currency ?? nextAccount?.currency ?? currentDraft.currency,
+      };
+    });
+  }
+
+  async function checkRecipientIban(iban = draft.destinationAccountIban): Promise<RecipientAccountResponse | null> {
+    const normalizedIban = iban.trim().toUpperCase();
+    setRecipientLookupError('');
+    setRecipientAccount(null);
+
+    if (!normalizedIban) {
+      return null;
+    }
+
+    setIsCheckingRecipient(true);
+    try {
+      const account = await lookupRecipientAccount(authSession, normalizedIban);
+      setRecipientAccount(account);
+      setDraft((currentDraft) => ({
+        ...currentDraft,
+        destinationAccountIban: account.iban,
+        currency: account.currency,
+      }));
+      return account;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Recipient IBAN was not found.';
+      setRecipientLookupError(message);
+      return null;
+    } finally {
+      setIsCheckingRecipient(false);
+    }
+  }
+
+  async function reviewTransfer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setTransferNotice('');
+    setEPinError('');
+    const normalizedDestinationIban = draft.destinationAccountIban.trim().toUpperCase();
+    const verifiedRecipient = recipientAccount?.iban === normalizedDestinationIban
+      ? recipientAccount
+      : await checkRecipientIban(normalizedDestinationIban);
+    const validationErrors = getTransferValidationErrors(draft, accounts, verifiedRecipient);
+    setFieldErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
+
+    try {
+      const isEPinSet = await fetchEPinStatus(authSession);
+      if (!isEPinSet) {
+        setEPinError('Set your E-PIN from the profile page before sending transfers.');
+        setActiveStep('epin');
+        return;
+      }
+      setActiveStep('summary');
+    } catch (error) {
+      setEPinError(error instanceof Error ? error.message : 'Unable to check E-PIN status.');
+      setActiveStep('epin');
+    }
+  }
+
+  async function verifyTransferEPin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setEPinError('');
+    if (!EPIN_PATTERN.test(ePin)) {
+      setEPinError(EPIN_VALIDATION_MESSAGE);
+      return;
+    }
+
+    setIsVerifyingEPin(true);
+    try {
+      await verifyEPin(authSession, ePin);
+      setActiveStep(null);
+      setEPin('');
+      setTransferNotice('E-PIN verified. Transfer submission is paused until the transaction service is available.');
+    } catch (error) {
+      setEPinError(error instanceof Error ? error.message : 'Unable to verify E-PIN.');
+    } finally {
+      setIsVerifyingEPin(false);
+    }
+  }
+
+  function closeTransferModal() {
+    setActiveStep(null);
+    setEPin('');
+    setEPinError('');
+  }
+
+  function retryTransferAccounts() {
+    loadTransferAccounts();
+  }
+
+  function checkCurrentRecipientIban() {
+    checkRecipientIban();
+  }
+
+  const summaryRows = getTransferSummaryRows(draft, sourceAccount);
+
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
       <div className="mx-auto max-w-[980px]">
@@ -1647,9 +2167,9 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
 
             <div className="mt-10 grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
               {[
-                ['Available Balance', '$4,821,390.44'],
-                ['Pending Review', '$86,000.00'],
-                ['Daily Limit', '$500,000.00'],
+                ['Available Balance', totalBalanceLabel],
+                ['Accounts', String(accounts.length)],
+                ['Daily Limit', dailyLimitLabel],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
                   <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
@@ -1668,43 +2188,104 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
               <div className="grid h-11 w-11 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
                 <Zap size={18} strokeWidth={1.8} />
               </div>
-            </div>
+              </div>
 
-            <form className="mt-6 flex flex-1 flex-col gap-4" onSubmit={(event) => event.preventDefault()}>
+            {accountsError && (
+              <div className="mt-5 rounded-md border border-red-500/30 bg-red-500/10 p-4">
+                <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
+                <button
+                  type="button"
+                  onClick={retryTransferAccounts}
+                  className="mt-3 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <form className="mt-6 flex flex-1 flex-col gap-4" onSubmit={reviewTransfer}>
               <label>
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">From Account</span>
-                <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                  <option>SAFE Private Checking • 3944</option>
-                  <option>SAFE Reserve Account • 1847</option>
+                <select
+                  value={draft.sourceAccountIban}
+                  onChange={(event) => updateDraft('sourceAccountIban', event.target.value)}
+                  disabled={isLoadingAccounts || accounts.length === 0}
+                  className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60 ${
+                    fieldErrors.sourceAccountIban ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
+                >
+                  <option value="">{isLoadingAccounts ? 'Loading accounts...' : 'Choose account'}</option>
+                  {accounts.map((account) => (
+                    <option key={account.iban} value={account.iban}>
+                      {account.name} · {maskIban(account.iban)} · {formatAccountBalance(account)}
+                    </option>
+                  ))}
                 </select>
+                {fieldErrors.sourceAccountIban && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.sourceAccountIban}</p>}
               </label>
               <label>
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Recipient</span>
-                <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="IBAN" />
+                <input
+                  value={draft.destinationAccountIban}
+                  onChange={(event) => updateDraft('destinationAccountIban', event.target.value.toUpperCase())}
+                  onBlur={checkCurrentRecipientIban}
+                  className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                    fieldErrors.destinationAccountIban || recipientLookupError ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
+                  placeholder="IBAN"
+                />
+                {isCheckingRecipient && <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">Checking recipient IBAN...</p>}
+                {recipientAccount && !isCheckingRecipient && <p className="mt-2 text-xs font-bold text-emerald-500">{currencyCheckLabel}</p>}
+                {(fieldErrors.destinationAccountIban || recipientLookupError) && (
+                  <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.destinationAccountIban ?? recipientLookupError}</p>
+                )}
               </label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label>
                   <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Amount</span>
-                  <input className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="$0.00" />
+                  <input
+                    value={draft.amount}
+                    onChange={(event) => updateDraft('amount', event.target.value)}
+                    inputMode="decimal"
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                      fieldErrors.amount ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    placeholder="0.00"
+                  />
+                  {fieldErrors.amount && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.amount}</p>}
                 </label>
                 <label>
                   <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Currency</span>
-                  <select className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                    <option>Euro</option>
-                    <option>USD</option>
-                    <option>Pound</option>
-                  </select>
+                  <input
+                    value={draft.currency}
+                    readOnly
+                    className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))] outline-none"
+                  />
+                  <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">
+                    Set automatically from the recipient account.
+                  </p>
                 </label>
               </div>
               <label className="flex flex-1 flex-col">
                 <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Reason</span>
                 <textarea
-                  className="min-h-[150px] flex-1 resize-none rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold leading-6 text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+                  value={draft.reason}
+                  onChange={(event) => updateDraft('reason', event.target.value)}
+                  className={`min-h-[150px] flex-1 resize-none rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold leading-6 text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] ${
+                    fieldErrors.reason ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                  }`}
                   placeholder="Payment reference or transfer purpose"
                 />
+                {fieldErrors.reason && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.reason}</p>}
               </label>
-              <button className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5" type="submit">
-                Review Transfer
+              {ePinError && !activeStep && <p className="text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+              {transferNotice && <output className="text-sm font-bold text-emerald-500">{transferNotice}</output>}
+              <button
+                className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                type="submit"
+                disabled={isLoadingAccounts || isCheckingRecipient || accounts.length === 0}
+              >
+                {isCheckingRecipient ? 'Checking Recipient...' : 'Review Transfer'}
               </button>
             </form>
           </div>
@@ -1734,11 +2315,209 @@ function TransactionsPage({ showHome }: { showHome: () => void }) {
           </div>
         </div>
       </div>
+      {activeStep && (
+        <dialog open className="fixed inset-0 z-[80] grid h-full w-full place-items-center overflow-y-auto bg-black/65 px-5 py-8 backdrop:bg-transparent">
+          <div className="relative w-full max-w-[560px] rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
+            <button
+              type="button"
+              onClick={closeTransferModal}
+              className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--text-strong))]"
+              aria-label="Close transfer popup"
+            >
+              <X size={17} strokeWidth={1.8} />
+            </button>
+
+            {activeStep === 'summary' && (
+              <div>
+                <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Transfer Summary</p>
+                <h2 className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Review Details</h2>
+                <dl className="mt-7 divide-y divide-[rgb(var(--line))] rounded-md border border-[rgb(var(--line))]">
+                  {summaryRows.map(([label, value]) => (
+                    <div key={label} className="grid gap-2 px-4 py-4 sm:grid-cols-[130px_1fr]">
+                      <dt className="text-xs font-extrabold uppercase tracking-[0.2em] text-[rgb(var(--text-muted))]">{label}</dt>
+                      <dd className="break-words text-sm font-bold text-[rgb(var(--text-strong))]">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('epin')}
+                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold"
+                  >
+                    Confirm & Continue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeTransferModal}
+                    className="rounded-md border border-[rgb(var(--button-line))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeStep === 'epin' && (
+              <form onSubmit={verifyTransferEPin}>
+                <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">E-PIN Verification</p>
+                <h2 className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Confirm Transfer</h2>
+                <p className="mt-4 text-sm leading-6 text-[rgb(var(--text-muted))]">
+                  Enter your 6-digit E-PIN. This only verifies your E-PIN for now; the transaction service is not connected yet.
+                </p>
+                <label className="mt-6 block">
+                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">E-PIN</span>
+                  <input
+                    value={ePin}
+                    onChange={(event) => {
+                      setEPin(sanitizeEPin(event.target.value));
+                      setEPinError('');
+                    }}
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern={EPIN_INPUT_PATTERN}
+                    maxLength={EPIN_LENGTH}
+                    className={`w-full rounded-md border bg-[rgb(var(--page-bg))] px-4 py-3 text-center font-mono text-lg font-bold tracking-[0.4em] text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))] ${
+                      ePinError ? 'border-red-500' : 'border-[rgb(var(--line))]'
+                    }`}
+                    placeholder="••••••"
+                  />
+                </label>
+                {ePinError && <p className="mt-3 text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="submit"
+                    disabled={isVerifyingEPin}
+                    className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isVerifyingEPin ? 'Checking E-PIN...' : 'Confirm & Send'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('summary')}
+                    disabled={isVerifyingEPin}
+                    className="rounded-md border border-[rgb(var(--button-line))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Back
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </dialog>
+      )}
     </section>
   );
 }
 
-function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; showTransactions: () => void }) {
+type PortfolioPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+  showTransactions: () => void;
+}>;
+
+function PortfolioPage({
+  authSession,
+  showHome,
+  showTransactions,
+}: PortfolioPageProps) {
+  const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
+  const [portfolioError, setPortfolioError] = React.useState('');
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = React.useState(true);
+
+  const loadPortfolio = React.useCallback(async () => {
+    setIsLoadingPortfolio(true);
+    setPortfolioError('');
+    try {
+      setAccounts(await fetchAccounts(authSession));
+    } catch (error) {
+      setPortfolioError(error instanceof Error ? error.message : 'Unable to load portfolio.');
+    } finally {
+      setIsLoadingPortfolio(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    loadPortfolio();
+  }, [loadPortfolio]);
+
+  const holdings = getPortfolioHoldings(accounts);
+  const allocations = getPortfolioCurrencyAllocations(accounts);
+  const portfolioMetrics = [
+    ['Total Value', getPortfolioTotalLabel(accounts)],
+    ['Accounts', String(accounts.length)],
+    ['Risk Profile', getPortfolioRiskProfile(accounts)],
+  ];
+  let allocationContent: React.ReactNode;
+  if (isLoadingPortfolio) {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">Loading portfolio...</p>;
+  } else if (allocations.length > 0) {
+    allocationContent = allocations.map((holding) => (
+      <div key={holding.category}>
+        <div className="mb-2 flex items-center justify-between text-sm font-bold">
+          <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
+          <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
+        </div>
+        <div className="h-2 rounded-full bg-[rgb(var(--line))]">
+          <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocationWidth }} />
+        </div>
+      </div>
+    ));
+  } else {
+    allocationContent = <p className="text-sm font-bold text-[rgb(var(--text-muted))]">No allocation data yet.</p>;
+  }
+
+  let holdingsContent: React.ReactNode;
+  if (portfolioError) {
+    holdingsContent = (
+      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+        <p className="text-sm font-bold text-red-500" role="alert">{portfolioError}</p>
+        <button
+          type="button"
+          onClick={loadPortfolio}
+          className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  } else if (isLoadingPortfolio) {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading holdings...
+      </div>
+    );
+  } else if (holdings.length > 0) {
+    holdingsContent = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {holdings.map((holding) => (
+          <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+            <div>
+              <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
+              <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
+            </div>
+            <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
+            <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
+            <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    holdingsContent = (
+      <div className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--page-bg))] p-8 text-center">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <ChartPie size={20} strokeWidth={1.8} />
+        </div>
+        <h3 className="mt-5 font-display text-2xl font-semibold text-[rgb(var(--text-strong))]">No portfolio data yet</h3>
+        <p className="mx-auto mt-3 max-w-[420px] text-sm leading-6 text-[rgb(var(--text-muted))]">
+          Create an account or fund an existing account to populate your portfolio.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <section className="pattern-bg min-h-screen px-6 pb-20 pt-32 sm:px-10 lg:pt-36">
       <div className="mx-auto max-w-[980px]">
@@ -1760,14 +2539,10 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Command Center
             </h1>
             <p className="mt-7 max-w-[560px] text-lg leading-8 text-[rgb(var(--text-muted))]">
-              Review your allocation, performance, and holdings across the mandates managed by SAFE Bank advisors.
+              Review your account allocation, balances, and transfer-ready holdings from live banking data.
             </p>
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              {[
-                ['Total Value', '$4,821,390.44'],
-                ['YTD Return', '+11.8%'],
-                ['Risk Profile', 'Balanced'],
-              ].map(([label, value]) => (
+              {portfolioMetrics.map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-5">
                   <p className="text-[0.62rem] font-extrabold uppercase tracking-[0.26em] text-[rgb(var(--text-muted))]">{label}</p>
                   <p className="mt-3 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{value}</p>
@@ -1787,17 +2562,7 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               </div>
             </div>
             <div className="mt-6 space-y-5">
-              {holdings.map((holding) => (
-                <div key={holding.category}>
-                  <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                    <span className="text-[rgb(var(--text-strong))]">{holding.category}</span>
-                    <span className="text-[rgb(var(--gold))]">{holding.allocation}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-[rgb(var(--line))]">
-                    <div className="h-full rounded-full bg-[rgb(var(--gold))]" style={{ width: holding.allocation }} />
-                  </div>
-                </div>
-              ))}
+              {allocationContent}
             </div>
           </div>
         </div>
@@ -1816,28 +2581,363 @@ function PortfolioPage({ showHome, showTransactions }: { showHome: () => void; s
               Transfer Funds
             </button>
           </div>
-          <div className="divide-y divide-[rgb(var(--line))]">
-            {holdings.map((holding) => (
-              <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
-                <div>
-                  <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
-                </div>
-                <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
-                <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
-                <span className="text-sm font-extrabold text-emerald-500">{holding.change}</span>
-              </div>
-            ))}
-          </div>
+          {holdingsContent}
         </div>
       </div>
     </section>
   );
 }
 
-function AdminPage({ showHome }: { showHome: () => void }) {
+type AdminPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+}>;
+
+type AdminUsersPanelProps = Readonly<{
+  searchQuery: string;
+  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+  accountActionError: string;
+  isLoadingUsers: boolean;
+  usersError: string;
+  filteredUsers: AdminUserResponse[];
+  updatingAccountIban: string | null;
+  loadUsers: () => Promise<void>;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminUserCardProps = Readonly<{
+  user: AdminUserResponse;
+  updatingAccountIban: string | null;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminAccountRowProps = Readonly<{
+  account: AccountResponse;
+  updatingAccountIban: string | null;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminTransactionsPanelProps = Readonly<{
+  isLoadingTransactions: boolean;
+  transactionsError: string;
+  transactions: AdminTransactionResponse[];
+  loadTransactions: () => Promise<void>;
+}>;
+
+type AdminRetryPanelProps = Readonly<{
+  message: string;
+  onRetry: () => Promise<void>;
+}>;
+
+function runAsyncAction(action: () => Promise<void>) {
+  action().catch(() => undefined);
+}
+
+function getAdminAccountStatusClass(status: AccountStatus) {
+  return status === 'BLOCKED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500';
+}
+
+function getAdminUserStatusClass(isActive: boolean) {
+  return isActive ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500';
+}
+
+function getClientQueuePriorityClass(priority: string) {
+  if (priority === 'High') return 'bg-red-500/15 text-red-500';
+  if (priority === 'Medium') return 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]';
+  return 'bg-emerald-500/15 text-emerald-500';
+}
+
+function getAdminAccountAction(status: AccountStatus) {
+  return status === 'BLOCKED' ? 'unblock' : 'block';
+}
+
+function getAdminAccountActionLabel(isUpdating: boolean, action: string) {
+  if (isUpdating) return 'Updating...';
+  return action === 'block' ? 'Block' : 'Unblock';
+}
+
+function updateUsersWithAccount(currentUsers: AdminUserResponse[], updatedAccount: AccountResponse) {
+  return currentUsers.map((user) => ({
+    ...user,
+    accounts: user.accounts.map((candidate) => (
+      candidate.iban === updatedAccount.iban ? updatedAccount : candidate
+    )),
+  }));
+}
+
+function AdminRetryPanel({ message, onRetry }: AdminRetryPanelProps) {
+  return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+      <p className="text-sm font-bold text-red-500" role="alert">{message}</p>
+      <button
+        type="button"
+        onClick={() => runAsyncAction(onRetry)}
+        className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function AdminAccountRow({ account, updatingAccountIban, toggleAdminAccountStatus }: AdminAccountRowProps) {
+  const action = getAdminAccountAction(account.status);
+  const isUpdating = updatingAccountIban === account.iban;
+  const actionLabel = getAdminAccountActionLabel(isUpdating, action);
+
+  return (
+    <div className="grid gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+      <div>
+        <p className="font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
+        <p className="mt-1 font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{account.iban} · {account.currency}</p>
+      </div>
+      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getAdminAccountStatusClass(account.status)}`}>
+        {account.status}
+      </span>
+      <button
+        type="button"
+        onClick={() => runAsyncAction(() => toggleAdminAccountStatus(account))}
+        disabled={Boolean(updatingAccountIban)}
+        className="rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function AdminUserCard({ user, updatingAccountIban, toggleAdminAccountStatus }: AdminUserCardProps) {
+  return (
+    <div className="grid gap-4 py-5">
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+        <div>
+          <p className="font-bold text-[rgb(var(--text-strong))]">{user.firstName} {user.lastName}</p>
+          <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">
+            {user.email} · {user.accountCount} account{user.accountCount === 1 ? '' : 's'}
+          </p>
+        </div>
+        <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getAdminUserStatusClass(user.active)}`}>
+          {user.active ? 'Active' : 'Inactive'}
+        </span>
+      </div>
+      <div className="grid gap-3">
+        {user.accounts.length > 0 ? (
+          user.accounts.map((account) => (
+            <AdminAccountRow
+              key={account.iban}
+              account={account}
+              updatingAccountIban={updatingAccountIban}
+              toggleAdminAccountStatus={toggleAdminAccountStatus}
+            />
+          ))
+        ) : (
+          <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))]">
+            No accounts for this user.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminUsersPanel({
+  searchQuery,
+  setSearchQuery,
+  accountActionError,
+  isLoadingUsers,
+  usersError,
+  filteredUsers,
+  updatingAccountIban,
+  loadUsers,
+  toggleAdminAccountStatus,
+}: AdminUsersPanelProps) {
+  let content = (
+    <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+      No users found.
+    </p>
+  );
+
+  if (isLoadingUsers) {
+    content = (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading users...
+      </p>
+    );
+  } else if (usersError) {
+    content = <AdminRetryPanel message={usersError} onRetry={loadUsers} />;
+  } else if (filteredUsers.length > 0) {
+    content = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {filteredUsers.map((user) => (
+          <AdminUserCard
+            key={user.email}
+            user={user}
+            updatingAccountIban={updatingAccountIban}
+            toggleAdminAccountStatus={toggleAdminAccountStatus}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="mb-5 block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
+        <input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+          placeholder="Search by name, email, account, IBAN, or status"
+        />
+      </label>
+      {accountActionError && (
+        <p className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+          {accountActionError}
+        </p>
+      )}
+      {content}
+    </div>
+  );
+}
+
+function AdminTransactionRow({ transaction }: Readonly<{ transaction: AdminTransactionResponse }>) {
+  const amount = formatCurrencyAmount(Number(transaction.amount), transaction.sourceCurrency);
+  const creditedAmount = formatCurrencyAmount(Number(transaction.creditedAmount), transaction.destinationCurrency);
+  const statusClass = transaction.status === 'FAILED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500';
+
+  return (
+    <div className="grid gap-3 py-4 xl:grid-cols-[0.65fr_1fr_auto_auto] xl:items-center">
+      <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">TRF-{transaction.transactionId}</span>
+      <div>
+        <p className="break-all font-mono text-xs font-bold text-[rgb(var(--text-strong))]">{transaction.sourceIban}</p>
+        <p className="mt-1 break-all font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{transaction.destinationIban}</p>
+        <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">
+          {transaction.reason} · {formatProfileDate(transaction.timeStamp, 'Date unavailable')}
+        </p>
+      </div>
+      <div className="text-left xl:text-right">
+        <span className="block font-display text-xl font-bold text-[rgb(var(--text-strong))]">{amount}</span>
+        <span className="mt-1 block text-xs font-bold text-[rgb(var(--text-muted))]">Credited {creditedAmount}</span>
+      </div>
+      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${statusClass}`}>
+        {transaction.status}
+      </span>
+    </div>
+  );
+}
+
+function AdminTransactionsPanel({
+  isLoadingTransactions,
+  transactionsError,
+  transactions,
+  loadTransactions,
+}: AdminTransactionsPanelProps) {
+  if (isLoadingTransactions) {
+    return (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading transfer logs...
+      </p>
+    );
+  }
+
+  if (transactionsError) {
+    return <AdminRetryPanel message={transactionsError} onRetry={loadTransactions} />;
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        No transfer logs found.
+      </p>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-[rgb(var(--line))]">
+      {transactions.map((transaction) => (
+        <AdminTransactionRow key={transaction.transactionId} transaction={transaction} />
+      ))}
+    </div>
+  );
+}
+
+function AdminPage({ authSession, showHome }: AdminPageProps) {
   const [activeMenu, setActiveMenu] = React.useState<AdminMenuId>('pending');
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [users, setUsers] = React.useState<AdminUserResponse[]>([]);
+  const [transactions, setTransactions] = React.useState<AdminTransactionResponse[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = React.useState(false);
+  const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(false);
+  const [usersError, setUsersError] = React.useState('');
+  const [transactionsError, setTransactionsError] = React.useState('');
+  const [accountActionError, setAccountActionError] = React.useState('');
+  const [updatingAccountIban, setUpdatingAccountIban] = React.useState<string | null>(null);
   const activeMenuDetails = adminMenus.find((menu) => menu.id === activeMenu) ?? adminMenus[0];
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredUsers = normalizedSearchQuery
+    ? users.filter((user) => {
+      const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
+      const accountMatch = user.accounts.some((account) => (
+        account.iban.toLowerCase().includes(normalizedSearchQuery)
+        || account.name.toLowerCase().includes(normalizedSearchQuery)
+        || account.status.toLowerCase().includes(normalizedSearchQuery)
+      ));
+      return fullName.includes(normalizedSearchQuery)
+        || user.email.toLowerCase().includes(normalizedSearchQuery)
+        || user.role.toLowerCase().includes(normalizedSearchQuery)
+        || accountMatch;
+    })
+    : users;
+
+  const loadUsers = React.useCallback(async () => {
+    setIsLoadingUsers(true);
+    setUsersError('');
+    setAccountActionError('');
+    try {
+      setUsers(await fetchAdminUsers(authSession));
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Unable to load users.');
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, [authSession]);
+
+  const loadTransactions = React.useCallback(async () => {
+    setIsLoadingTransactions(true);
+    setTransactionsError('');
+    try {
+      setTransactions(await fetchAdminTransactions(authSession));
+    } catch (error) {
+      setTransactionsError(error instanceof Error ? error.message : 'Unable to load transfer logs.');
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    if (activeMenu === 'users') {
+      runAsyncAction(loadUsers);
+    }
+    if (activeMenu === 'logs') {
+      runAsyncAction(loadTransactions);
+    }
+  }, [activeMenu, loadTransactions, loadUsers]);
+
+  async function toggleAdminAccountStatus(account: AccountResponse) {
+    const action = account.status === 'BLOCKED' ? 'unblock' : 'block';
+    setUpdatingAccountIban(account.iban);
+    setAccountActionError('');
+    try {
+      const updatedAccount = await updateAdminAccountStatus(authSession, account.iban, action);
+      setUsers((currentUsers) => updateUsersWithAccount(currentUsers, updatedAccount));
+    } catch (error) {
+      setAccountActionError(error instanceof Error ? error.message : `Unable to ${action} account.`);
+    } finally {
+      setUpdatingAccountIban(null);
+    }
+  }
 
   return (
     <section className="min-h-screen bg-[rgb(var(--page-bg))] px-6 pb-20 pt-28 sm:px-10 lg:pt-32">
@@ -1860,6 +2960,8 @@ function AdminPage({ showHome }: { showHome: () => void }) {
           <div className="flex max-w-[420px] items-center gap-3 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] px-4 py-3">
             <Search size={17} className="text-[rgb(var(--text-muted))]" />
             <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
               className="w-full bg-transparent text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]"
               placeholder="Search clients, transfers, reviews"
             />
@@ -1927,7 +3029,7 @@ function AdminPage({ showHome }: { showHome: () => void }) {
                 <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{activeMenuDetails.description}</p>
               </div>
               <span className="rounded-full bg-[rgb(var(--icon-bg))] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-[rgb(var(--gold))]">
-                Frontend Demo
+                {activeMenu === 'users' || activeMenu === 'logs' ? 'Live API' : 'Frontend Demo'}
               </span>
             </div>
 
@@ -1939,15 +3041,7 @@ function AdminPage({ showHome }: { showHome: () => void }) {
                       <p className="font-bold text-[rgb(var(--text-strong))]">{item.name}</p>
                       <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{item.request} · {item.time}</p>
                     </div>
-                    <span
-                      className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${
-                        item.priority === 'High'
-                          ? 'bg-red-500/15 text-red-500'
-                          : item.priority === 'Medium'
-                            ? 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]'
-                            : 'bg-emerald-500/15 text-emerald-500'
-                      }`}
-                    >
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getClientQueuePriorityClass(item.priority)}`}>
                       {item.priority}
                     </span>
                     <div className="flex gap-2">
@@ -1964,59 +3058,26 @@ function AdminPage({ showHome }: { showHome: () => void }) {
             )}
 
             {activeMenu === 'users' && (
-              <div>
-                <label className="mb-5 block">
-                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
-                  <input
-                    className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                    placeholder="Search by name, email, role, or status"
-                  />
-                </label>
-                <div className="divide-y divide-[rgb(var(--line))]">
-                  {adminUsers.map((user) => (
-                    <div key={user.email} className="grid gap-3 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
-                      <div>
-                        <p className="font-bold text-[rgb(var(--text-strong))]">{user.name}</p>
-                        <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{user.email} · Last seen {user.lastSeen}</p>
-                      </div>
-                      <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
-                      <span className="w-fit rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-500">
-                        {user.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AdminUsersPanel
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                accountActionError={accountActionError}
+                isLoadingUsers={isLoadingUsers}
+                usersError={usersError}
+                filteredUsers={filteredUsers}
+                updatingAccountIban={updatingAccountIban}
+                loadUsers={loadUsers}
+                toggleAdminAccountStatus={toggleAdminAccountStatus}
+              />
             )}
 
             {activeMenu === 'logs' && (
-              <div>
-                <div className="mb-5 grid gap-3 sm:grid-cols-3">
-                  <input className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="Transfer ID" />
-                  <input className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="User or account" />
-                  <select className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                    <option>All statuses</option>
-                    <option>Completed</option>
-                    <option>Reviewed</option>
-                    <option>Flagged</option>
-                  </select>
-                </div>
-                <div className="divide-y divide-[rgb(var(--line))]">
-                  {transferLogs.map((log) => (
-                    <div key={log.id} className="grid gap-3 py-4 xl:grid-cols-[0.7fr_1fr_auto_auto] xl:items-center">
-                      <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">{log.id}</span>
-                      <div>
-                        <p className="font-bold text-[rgb(var(--text-strong))]">{log.user}</p>
-                        <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{log.type} · {log.date}</p>
-                      </div>
-                      <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{log.amount}</span>
-                      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${log.status === 'Flagged' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
-                        {log.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AdminTransactionsPanel
+                isLoadingTransactions={isLoadingTransactions}
+                transactionsError={transactionsError}
+                transactions={transactions}
+                loadTransactions={loadTransactions}
+              />
             )}
 
             {activeMenu === 'access' && (
@@ -2180,11 +3241,11 @@ function AdminRoute({
     );
   }
 
-  if (!isAllowed) {
+  if (!authSession || !isAllowed) {
     return <AdminAccessGate authSession={authSession} openAuth={openAuth} showHome={showHome} />;
   }
 
-  return <AdminPage showHome={showHome} />;
+  return <AdminPage authSession={authSession} showHome={showHome} />;
 }
 
 function Cta({ showTransactions, showPortfolio }: { showTransactions: () => void; showPortfolio: () => void }) {
@@ -3075,8 +4136,8 @@ function App() {
         )}
         {page === 'accounts' && authSession && <AccountsPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'profile' && <UserPage authSession={authSession} showHome={showHome} showAccounts={showAccounts} />}
-        {page === 'transactions' && <TransactionsPage showHome={showHome} />}
-        {page === 'portfolio' && <PortfolioPage showHome={showHome} showTransactions={showTransactions} />}
+        {page === 'transactions' && <TransactionsPage authSession={authSession} showHome={showHome} />}
+        {page === 'portfolio' && <PortfolioPage authSession={authSession} showHome={showHome} showTransactions={showTransactions} />}
         {page === 'admin' && <AdminRoute authSession={authSession} openAuth={openAuth} showHome={showHome} />}
       </main>
       {page === 'home' && <Footer />}

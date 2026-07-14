@@ -2,12 +2,19 @@ package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.BankAccountResponse;
 import com.elsys.safebanking.dto.CreateBankAccountRequest;
+import com.elsys.safebanking.dto.RecipientAccountResponse;
 import com.elsys.safebanking.dto.UpdateBankAccountNameRequest;
 import com.elsys.safebanking.exception.AccountNotFoundException;
+import com.elsys.safebanking.exception.AccountStateConflictException;
+import com.elsys.safebanking.exception.ForbiddenAccessException;
+import com.elsys.safebanking.exception.InvalidRequestException;
+import com.elsys.safebanking.model.AccountStatus;
 import com.elsys.safebanking.model.BankAccount;
 import com.elsys.safebanking.model.User;
 import com.elsys.safebanking.repository.BankAccountRepository;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -17,6 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class AccountService {
 
+    private static final Logger logger = LoggerFactory.getLogger(AccountService.class);
     private static final int MAX_SAVE_ATTEMPTS = 5;
 
     private final BankAccountRepository bankAccountRepository;
@@ -64,11 +72,70 @@ public class AccountService {
         return BankAccountResponse.from(getOwnedAccount(owner, iban));
     }
 
+    @Transactional(readOnly = true)
+    public RecipientAccountResponse getRecipientAccount(String iban) {
+        String normalizedIban = normalizeIban(iban);
+        return bankAccountRepository.findById(normalizedIban)
+                .map(RecipientAccountResponse::from)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+    }
+
+    @Transactional
+    public BankAccountResponse blockAccount(String iban) {
+        String normalizedIban = normalizeIban(iban);
+        BankAccount account = bankAccountRepository.findByIban(normalizedIban)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+        if (account.getStatus() == AccountStatus.BLOCKED) {
+            throw new InvalidRequestException("Account " + normalizedIban + " is already blocked");
+        }
+        account.block();
+        logger.info("Admin action: account {} blocked", normalizedIban);
+        return BankAccountResponse.from(account);
+    }
+
+    @Transactional
+    public BankAccountResponse unblockAccount(String iban) {
+        String normalizedIban = normalizeIban(iban);
+        BankAccount account = bankAccountRepository.findByIban(normalizedIban)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+        if (account.getStatus() != AccountStatus.BLOCKED) {
+            throw new InvalidRequestException("Account " + normalizedIban + " is not currently blocked");
+        }
+        account.unblock();
+        logger.info("Admin action: account {} unblocked", normalizedIban);
+        return BankAccountResponse.from(account);
+    }
+
     @Transactional
     public BankAccountResponse updateAccountName(String email, String iban, UpdateBankAccountNameRequest request) {
         User owner = userService.getByEmail(email);
         BankAccount account = getOwnedAccount(owner, iban);
         account.updateName(request.name().trim());
+        return BankAccountResponse.from(account);
+    }
+
+    @Transactional
+    public BankAccountResponse suspendOwnAccount(String email, String iban) {
+        User owner = userService.getByEmail(email);
+        BankAccount account = getSelfServiceAccount(owner, iban);
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new AccountStateConflictException("Only ACTIVE accounts can be suspended.");
+        }
+        account.suspend();
+        return BankAccountResponse.from(account);
+    }
+
+    @Transactional
+    public BankAccountResponse activateOwnAccount(String email, String iban) {
+        User owner = userService.getByEmail(email);
+        BankAccount account = getSelfServiceAccount(owner, iban);
+        if (account.getStatus() == AccountStatus.BLOCKED) {
+            throw new ForbiddenAccessException("Blocked accounts cannot be self-activated.");
+        }
+        if (account.getStatus() != AccountStatus.SUSPENDED) {
+            throw new AccountStateConflictException("Only SUSPENDED accounts can be activated.");
+        }
+        account.activate();
         return BankAccountResponse.from(account);
     }
 
@@ -84,7 +151,25 @@ public class AccountService {
     }
 
     private BankAccount getOwnedAccount(User owner, String iban) {
-        return bankAccountRepository.findByIbanAndOwnerId(iban, owner.getId())
-                .orElseThrow(() -> new AccountNotFoundException(iban));
+        String normalizedIban = normalizeIban(iban);
+        return bankAccountRepository.findByIbanAndOwnerId(normalizedIban, owner.getId())
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+    }
+
+    private BankAccount getSelfServiceAccount(User owner, String iban) {
+        String normalizedIban = normalizeIban(iban);
+        BankAccount account = bankAccountRepository.findByIban(normalizedIban)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
+        if (!account.getOwner().getId().equals(owner.getId())) {
+            throw new ForbiddenAccessException("You are not authorized to manage this account.");
+        }
+        return account;
+    }
+
+    private String normalizeIban(String iban) {
+        if (iban == null || iban.isBlank()) {
+            throw new InvalidRequestException("IBAN is required.");
+        }
+        return iban.trim().toUpperCase();
     }
 }

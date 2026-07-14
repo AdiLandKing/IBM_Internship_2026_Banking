@@ -1,11 +1,14 @@
 package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.AdminUserResponse;
+import com.elsys.safebanking.dto.BankAccountResponse;
 import com.elsys.safebanking.dto.ChangeEPinRequest;
 import com.elsys.safebanking.dto.EPinStatusResponse;
 import com.elsys.safebanking.dto.SetEPinRequest;
 import com.elsys.safebanking.dto.UpdateProfileRequest;
 import com.elsys.safebanking.dto.UserProfileResponse;
+import com.elsys.safebanking.dto.VerifyEPinRequest;
+import com.elsys.safebanking.dto.VerifyEPinResponse;
 import com.elsys.safebanking.exception.EPinAlreadySetException;
 import com.elsys.safebanking.exception.EPinReuseException;
 import com.elsys.safebanking.exception.EPinVerificationException;
@@ -57,8 +60,11 @@ public class UserService {
     public Page<AdminUserResponse> getAllUsers(Pageable pageable) {
         return userRepository.findAll(pageable)
             .map(user -> {
-                long count = bankAccountRepository.countByOwner(user);
-                return AdminUserResponse.from(user, count);
+                var accounts = bankAccountRepository.findByOwnerIdOrderByIbanAsc(user.getId())
+                        .stream()
+                        .map(BankAccountResponse::from)
+                        .toList();
+                return AdminUserResponse.from(user, accounts);
             });
     }
 
@@ -107,6 +113,21 @@ public class UserService {
         ePinAttemptLimiter.recordSuccess(user.getId(), clientIp, "change");
         auditEPinSuccess(user, clientIp, "change");
         return new EPinStatusResponse(true);
+    }
+
+    @Transactional(readOnly = true)
+    public VerifyEPinResponse verifyEPin(String email, VerifyEPinRequest request, String clientIp) {
+        User user = getByEmail(email);
+        checkEPinAllowed(user, clientIp, "verify");
+        auditEPinAttempt(user, clientIp, "verify");
+        if (!hasUsableEPinHash(user) || !passwordEncoder.matches(request.ePin(), user.getEPinHash())) {
+            auditEPinFailure(user, clientIp, "verify", "invalid_pin");
+            ePinAttemptLimiter.recordFailure(user.getId(), clientIp, "verify");
+            throw new EPinVerificationException();
+        }
+        ePinAttemptLimiter.recordSuccess(user.getId(), clientIp, "verify");
+        auditEPinSuccess(user, clientIp, "verify");
+        return new VerifyEPinResponse(true);
     }
 
     private void verifyChangeCredentials(User user, ChangeEPinRequest request, String clientIp) {

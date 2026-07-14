@@ -2,23 +2,41 @@ package com.elsys.safebanking.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "bank_accounts")
+@Getter
+@Setter
 public class BankAccount {
 
     @Id
-    @Column(nullable = false, unique = true, length = 18)
+    @Column(nullable = false, unique = true, length = 34)
     private String iban;
 
-    @Column(name = "account_name", nullable = false, length = 80)
+    @Column(nullable = false, length = 80)
     private String name;
+
+    /*
+     * account_name is an old local-schema column. New writes use name only; this
+     * read-only field lets older rows display correctly until they are saved again.
+     */
+    @Column(name = "account_name", insertable = false, updatable = false, length = 80)
+    private String legacyAccountName;
 
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal balance;
@@ -26,18 +44,42 @@ public class BankAccount {
     @Column(nullable = false, length = 3)
     private String currency;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10, columnDefinition = "varchar(10) default 'ACTIVE'")
+    private AccountStatus status = AccountStatus.ACTIVE;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @Setter(AccessLevel.NONE)
     private User owner;
+
+    @Column(updatable = false)
+    private Instant createdAt;
+
+    @Column
+    private Instant updatedAt;
 
     protected BankAccount() {
     }
 
     public BankAccount(String iban, String name, String currency, User owner) {
+        this(name, iban, BigDecimal.ZERO, currency, owner);
+    }
+
+    public BankAccount(String name, String iban, BigDecimal balance, String currency, User owner) {
         this.iban = iban;
-        this.name = name;
-        this.balance = BigDecimal.ZERO;
+        this.name = requireAccountName(name);
+        this.balance = balance == null ? BigDecimal.ZERO : balance;
         this.currency = currency;
+        this.status = AccountStatus.ACTIVE;
+        this.owner = owner;
+    }
+
+    public void setOwner(User owner) {
+        if (this.owner == owner) {
+            return;
+        }
+
         this.owner = owner;
     }
 
@@ -66,6 +108,66 @@ public class BankAccount {
     }
 
     public void updateName(String name) {
-        this.name = name;
+        this.name = requireAccountName(name);
+    }
+
+    public void suspend() {
+        status = AccountStatus.SUSPENDED;
+    }
+
+    public void activate() {
+        status = AccountStatus.ACTIVE;
+    }
+
+    public void block() {
+        status = AccountStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        status = AccountStatus.ACTIVE;
+    }
+
+    @PostLoad
+    private void hydrateLegacyFields() {
+        if (isBlank(name) && !isBlank(legacyAccountName)) {
+            name = legacyAccountName;
+        }
+        if (status == null) {
+            status = AccountStatus.ACTIVE;
+        }
+    }
+
+    @PrePersist
+    private void onCreate() {
+        validateRequiredFields();
+        Instant now = Instant.now();
+        if (createdAt == null) {
+            createdAt = now;
+        }
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    private void onUpdate() {
+        validateRequiredFields();
+        updatedAt = Instant.now();
+    }
+
+    private void validateRequiredFields() {
+        name = requireAccountName(name);
+        if (status == null) {
+            status = AccountStatus.ACTIVE;
+        }
+    }
+
+    private static String requireAccountName(String value) {
+        if (isBlank(value)) {
+            throw new IllegalArgumentException("Account name is required");
+        }
+        return value.trim();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }
