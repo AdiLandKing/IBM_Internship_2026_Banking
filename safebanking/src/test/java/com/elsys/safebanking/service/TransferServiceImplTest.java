@@ -2,8 +2,10 @@ package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
+import com.elsys.safebanking.exception.AccountStateConflictException;
 import com.elsys.safebanking.exception.ExchangeRateUnavailableException;
 import com.elsys.safebanking.exception.ForbiddenAccessException;
+import com.elsys.safebanking.exception.InssuficientFundsException;
 import com.elsys.safebanking.exception.InvalidRequestException;
 import com.elsys.safebanking.exception.ResourceNotFoundException;
 import com.elsys.safebanking.model.*;
@@ -173,25 +175,22 @@ class TransferServiceImplTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void transfer_insufficientFunds_returnsFailed_andPersistsFailedTransaction() {
+    void transfer_insufficientFunds_throwsInssuficientFundsException() {
         BankAccount src = accountOf("IBAN-SRC", "EUR", "50.00",  owner);
         BankAccount dst = accountOf("IBAN-DST", "EUR", "100.00", recipient);
 
         stubAccounts(src, dst);
         when(exchangeRateService.getRate("EUR", "EUR")).thenReturn(BigDecimal.ONE);
-        when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         TransferRequest req = new TransferRequest("IBAN-SRC", "IBAN-DST", new BigDecimal("100.00"), "Too much");
-        TransferResponse resp = service.transfer(req);
 
-        assertThat(resp.status()).isEqualTo(TransactionStatus.FAILED);
-        // Balances must be unchanged
+        assertThatThrownBy(() -> service.transfer(req))
+                .isInstanceOf(InssuficientFundsException.class)
+                .hasMessageContaining("Insufficient funds");
+
         assertThat(src.getBalance()).isEqualByComparingTo("50.00");
         assertThat(dst.getBalance()).isEqualByComparingTo("100.00");
-
-        ArgumentCaptor<BankingTransaction> txCaptor = ArgumentCaptor.forClass(BankingTransaction.class);
-        verify(transactionRepository).save(txCaptor.capture());
-        assertThat(txCaptor.getValue().getStatus()).isEqualTo(TransactionStatus.FAILED);
+        verify(transactionRepository, never()).save(any());
     }
 
     // -------------------------------------------------------------------------
@@ -242,7 +241,7 @@ class TransferServiceImplTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void transfer_sourceAccountBlocked_throwsIllegalStateException() {
+    void transfer_sourceAccountBlocked_throwsAccountStateConflictException() {
         BankAccount src = accountOf("IBAN-SRC", "EUR", "500.00", owner);
         src.block();
         BankAccount dst = accountOf("IBAN-DST", "EUR", "0.00", recipient);
@@ -252,12 +251,12 @@ class TransferServiceImplTest {
         TransferRequest req = new TransferRequest("IBAN-SRC", "IBAN-DST", new BigDecimal("10.00"), "Test");
 
         assertThatThrownBy(() -> service.transfer(req))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(AccountStateConflictException.class)
                 .hasMessageContaining("Source account is not active");
     }
 
     @Test
-    void transfer_destinationAccountBlocked_throwsIllegalStateException() {
+    void transfer_destinationAccountBlocked_throwsAccountStateConflictException() {
         BankAccount src = accountOf("IBAN-SRC", "EUR", "500.00", owner);
         BankAccount dst = accountOf("IBAN-DST", "EUR", "0.00",   recipient);
         dst.block();
@@ -267,7 +266,7 @@ class TransferServiceImplTest {
         TransferRequest req = new TransferRequest("IBAN-SRC", "IBAN-DST", new BigDecimal("10.00"), "Test");
 
         assertThatThrownBy(() -> service.transfer(req))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(AccountStateConflictException.class)
                 .hasMessageContaining("Destination account is not active");
     }
 
