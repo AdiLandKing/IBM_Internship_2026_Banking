@@ -1,6 +1,7 @@
 package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.AdminUserResponse;
+import com.elsys.safebanking.dto.BankAccountResponse;
 import com.elsys.safebanking.dto.ChangeEPinRequest;
 import com.elsys.safebanking.dto.EPinStatusResponse;
 import com.elsys.safebanking.dto.SetEPinRequest;
@@ -59,8 +60,11 @@ public class UserService {
     public Page<AdminUserResponse> getAllUsers(Pageable pageable) {
         return userRepository.findAll(pageable)
             .map(user -> {
-                long count = bankAccountRepository.countByOwner(user);
-                return AdminUserResponse.from(user, count);
+                var accounts = bankAccountRepository.findByOwnerIdOrderByIbanAsc(user.getId())
+                        .stream()
+                        .map(BankAccountResponse::from)
+                        .toList();
+                return AdminUserResponse.from(user, accounts);
             });
     }
 

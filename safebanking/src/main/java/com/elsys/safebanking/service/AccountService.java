@@ -151,13 +151,15 @@ public class AccountService {
     }
 
     private BankAccount getOwnedAccount(User owner, String iban) {
-        return bankAccountRepository.findByIbanAndOwnerId(normalizeIban(iban), owner.getId())
-                .orElseThrow(() -> new AccountNotFoundException(iban));
+        String normalizedIban = normalizeIban(iban);
+        return bankAccountRepository.findByIbanAndOwnerId(normalizedIban, owner.getId())
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
     }
 
     private BankAccount getSelfServiceAccount(User owner, String iban) {
-        BankAccount account = bankAccountRepository.findByIban(normalizeIban(iban))
-                .orElseThrow(() -> new AccountNotFoundException(iban));
+        String normalizedIban = normalizeIban(iban);
+        BankAccount account = bankAccountRepository.findByIban(normalizedIban)
+                .orElseThrow(() -> new AccountNotFoundException(normalizedIban));
         if (!account.getOwner().getId().equals(owner.getId())) {
             throw new ForbiddenAccessException("You are not authorized to manage this account.");
         }
