@@ -1,1 +1,0 @@
-ALTER TABLE public.users RENAME COLUMN e_pin TO e_pin_hash;
