@@ -11,13 +11,6 @@ const stats = [
   { value: '180', label: 'Countries Served' },
 ];
 
-const recentTransactions = [
-  { name: 'Hamilton Family Office', type: 'Wire transfer', amount: '-$48,250.00', date: 'Jul 02', status: 'Completed' },
-  { name: 'Treasury Income Sweep', type: 'Portfolio credit', amount: '+$12,940.18', date: 'Jul 01', status: 'Settled' },
-  { name: 'Zurich Custody Account', type: 'International transfer', amount: '-$86,000.00', date: 'Jun 28', status: 'Reviewed' },
-  { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
-];
-
 const adminMetrics = [
   { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
   { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
@@ -127,6 +120,40 @@ type TransferDraft = {
 };
 
 type TransferValidationErrors = Partial<Record<keyof TransferDraft, string>>;
+
+type TransactionStatus = 'PENDING' | 'COMPLETED' | 'FAILED';
+
+type TransactionHistoryResponse = {
+  transactionId: number;
+  sourceIban: string;
+  destinationIban: string;
+  amount: number | string;
+  creditedAmount: number | string | null;
+  sourceCurrency: string | null;
+  destinationCurrency: string | null;
+  reason: string;
+  status: TransactionStatus;
+  timestamp: string;
+};
+
+type TransactionPageResponse = {
+  content: TransactionHistoryResponse[];
+};
+
+type TransferResponse = {
+  transactionId: number;
+  status: TransactionStatus;
+};
+
+class ApiRequestError extends Error {
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(message: string, fieldErrors: Record<string, string> = {}) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.fieldErrors = fieldErrors;
+  }
+}
 
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
@@ -473,6 +500,56 @@ async function lookupRecipientAccount(authSession: AuthSession, iban: string): P
 
   if (!response.ok) {
     throw new Error(await getApiErrorMessage(response, 'Recipient IBAN was not found.'));
+  }
+
+  return response.json();
+}
+
+async function fetchTransactions(authSession: AuthSession): Promise<TransactionHistoryResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/transactions`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load transactions.'));
+  }
+
+  const transactionPage = await response.json() as TransactionPageResponse;
+  return [...transactionPage.content].sort(
+    (first, second) => new Date(second.timestamp).getTime() - new Date(first.timestamp).getTime(),
+  );
+}
+
+async function submitTransfer(
+  authSession: AuthSession,
+  draft: TransferDraft,
+): Promise<TransferResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/transactions/transfer`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sourceAccountIban: draft.sourceAccountIban,
+      destinationAccountIban: draft.destinationAccountIban.trim().toUpperCase(),
+      amount: Number(draft.amount),
+      reason: draft.reason.trim(),
+    }),
+  });
+
+  if (!response.ok) {
+    let apiError: ApiErrorResponse | null = null;
+    try {
+      apiError = await response.json() as ApiErrorResponse;
+    } catch {
+      apiError = null;
+    }
+    const firstFieldError = apiError?.fieldErrors ? Object.values(apiError.fieldErrors)[0] : undefined;
+    throw new ApiRequestError(
+      firstFieldError ?? apiError?.message ?? 'Unable to send the transfer.',
+      apiError?.fieldErrors,
+    );
   }
 
   return response.json();
@@ -2003,6 +2080,94 @@ function useTransferAccounts(
   };
 }
 
+function useTransactionHistory(authSession: AuthSession) {
+  const [transactions, setTransactions] = React.useState<TransactionHistoryResponse[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(true);
+  const [transactionsError, setTransactionsError] = React.useState('');
+
+  const loadTransactions = React.useCallback(async () => {
+    setIsLoadingTransactions(true);
+    setTransactionsError('');
+    try {
+      setTransactions(await fetchTransactions(authSession));
+    } catch (error) {
+      setTransactionsError(error instanceof Error ? error.message : 'Unable to load transactions.');
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
+
+  return {
+    transactions,
+    isLoadingTransactions,
+    transactionsError,
+    loadTransactions,
+  };
+}
+
+function getTransferApiFieldErrors(fieldErrors: Record<string, string>): TransferValidationErrors {
+  const validationErrors: TransferValidationErrors = {};
+  const transferFields: (keyof TransferDraft)[] = [
+    'sourceAccountIban',
+    'destinationAccountIban',
+    'amount',
+    'reason',
+  ];
+
+  transferFields.forEach((field) => {
+    if (fieldErrors[field]) validationErrors[field] = fieldErrors[field];
+  });
+  return validationErrors;
+}
+
+function getTransferSuccessMessage(transfer: TransferResponse) {
+  if (transfer.status === 'PENDING') {
+    return `Transfer #${transfer.transactionId} was submitted and is pending.`;
+  }
+  return `Transfer #${transfer.transactionId} completed successfully.`;
+}
+
+function formatTransactionDate(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 'Date unavailable';
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function getTransactionStatusClass(status: TransactionStatus) {
+  if (status === 'COMPLETED') return 'bg-emerald-500/15 text-emerald-500';
+  if (status === 'FAILED') return 'bg-red-500/15 text-red-500';
+  return 'bg-[rgb(var(--gold))]/15 text-[rgb(var(--gold))]';
+}
+
+function getTransactionDisplay(transaction: TransactionHistoryResponse, accounts: ClientAccount[]) {
+  const sourceAccount = accounts.find((account) => account.iban === transaction.sourceIban) ?? null;
+  const destinationAccount = accounts.find((account) => account.iban === transaction.destinationIban) ?? null;
+  const isOutgoing = Boolean(sourceAccount);
+  const counterpartyIban = isOutgoing ? transaction.destinationIban : transaction.sourceIban;
+  const currency = isOutgoing
+    ? transaction.sourceCurrency ?? sourceAccount?.currency ?? 'EUR'
+    : transaction.destinationCurrency ?? destinationAccount?.currency ?? transaction.sourceCurrency ?? 'EUR';
+  const displayedAmount = isOutgoing
+    ? transaction.amount
+    : transaction.creditedAmount ?? transaction.amount;
+  const amount = Number(displayedAmount);
+  const signedAmount = isOutgoing ? -amount : amount;
+
+  return {
+    counterpartyIban,
+    amountLabel: `${signedAmount > 0 ? '+' : ''}${formatCurrencyAmount(signedAmount, currency)}`,
+    isIncoming: signedAmount > 0,
+    direction: isOutgoing ? 'Sent' : 'Received',
+  };
+}
+
 function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
   const [draft, setDraft] = React.useState<TransferDraft>(EMPTY_TRANSFER_DRAFT);
   const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
@@ -2012,14 +2177,21 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
     isLoadingAccounts,
     loadTransferAccounts,
   } = useTransferAccounts(authSession, setDraft);
+  const {
+    transactions,
+    isLoadingTransactions,
+    transactionsError,
+    loadTransactions,
+  } = useTransactionHistory(authSession);
   const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
   const [recipientLookupError, setRecipientLookupError] = React.useState('');
   const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
   const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
   const [ePin, setEPin] = React.useState('');
   const [ePinError, setEPinError] = React.useState('');
+  const [transferError, setTransferError] = React.useState('');
   const [transferNotice, setTransferNotice] = React.useState('');
-  const [isVerifyingEPin, setIsVerifyingEPin] = React.useState(false);
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = React.useState(false);
 
   const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
   const totalBalanceLabel = getPortfolioTotalLabel(accounts);
@@ -2029,6 +2201,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
 
   function updateDraft(field: keyof TransferDraft, value: string) {
     setTransferNotice('');
+    setTransferError('');
     if (field === 'destinationAccountIban') {
       setRecipientAccount(null);
       setRecipientLookupError('');
@@ -2046,7 +2219,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       return {
         ...currentDraft,
         sourceAccountIban: value,
-        currency: recipientAccount?.currency ?? nextAccount?.currency ?? currentDraft.currency,
+        currency: nextAccount?.currency ?? currentDraft.currency,
       };
     });
   }
@@ -2067,7 +2240,6 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       setDraft((currentDraft) => ({
         ...currentDraft,
         destinationAccountIban: account.iban,
-        currency: account.currency,
       }));
       return account;
     } catch (error) {
@@ -2082,6 +2254,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
   async function reviewTransfer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTransferNotice('');
+    setTransferError('');
     setEPinError('');
     const normalizedDestinationIban = draft.destinationAccountIban.trim().toUpperCase();
     const verifiedRecipient = recipientAccount?.iban === normalizedDestinationIban
@@ -2113,16 +2286,42 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       return;
     }
 
-    setIsVerifyingEPin(true);
+    setIsSubmittingTransfer(true);
+    let isEPinVerified = false;
     try {
       await verifyEPin(authSession, ePin);
+      isEPinVerified = true;
+      const transfer = await submitTransfer(authSession, draft);
       setActiveStep(null);
       setEPin('');
-      setTransferNotice('E-PIN verified. Transfer submission is paused until the transaction service is available.');
+      setRecipientAccount(null);
+      setRecipientLookupError('');
+      await Promise.all([loadTransferAccounts(), loadTransactions()]);
+
+      if (transfer.status === 'FAILED') {
+        setTransferError(`Transfer #${transfer.transactionId} failed. Check the available balance and try again.`);
+        return;
+      }
+
+      setDraft({
+        ...EMPTY_TRANSFER_DRAFT,
+        sourceAccountIban: draft.sourceAccountIban,
+        currency: sourceAccount?.currency ?? 'EUR',
+      });
+      setTransferNotice(getTransferSuccessMessage(transfer));
     } catch (error) {
-      setEPinError(error instanceof Error ? error.message : 'Unable to verify E-PIN.');
+      if (isEPinVerified) {
+        if (error instanceof ApiRequestError) {
+          setFieldErrors(getTransferApiFieldErrors(error.fieldErrors));
+        }
+        setActiveStep(null);
+        setEPin('');
+        setTransferError(error instanceof Error ? error.message : 'Unable to send the transfer.');
+      } else {
+        setEPinError(error instanceof Error ? error.message : 'Unable to verify E-PIN.');
+      }
     } finally {
-      setIsVerifyingEPin(false);
+      setIsSubmittingTransfer(false);
     }
   }
 
@@ -2134,6 +2333,10 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
 
   function retryTransferAccounts() {
     loadTransferAccounts();
+  }
+
+  function retryTransactions() {
+    loadTransactions();
   }
 
   function checkCurrentRecipientIban() {
@@ -2262,7 +2465,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                     className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))] outline-none"
                   />
                   <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">
-                    Set automatically from the recipient account.
+                    Set automatically from the source account.
                   </p>
                 </label>
               </div>
@@ -2279,6 +2482,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 {fieldErrors.reason && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.reason}</p>}
               </label>
               {ePinError && !activeStep && <p className="text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+              {transferError && <p className="text-sm font-bold text-red-500" role="alert">{transferError}</p>}
               {transferNotice && <output className="text-sm font-bold text-emerald-500">{transferNotice}</output>}
               <button
                 className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
@@ -2297,22 +2501,53 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
               <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Recent Activity</p>
               <h2 className="mt-2 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Transaction History</h2>
             </div>
-            <span className="text-sm font-bold text-[rgb(var(--text-muted))]">Last 30 days</span>
+            <span className="text-sm font-bold text-[rgb(var(--text-muted))]">Latest transactions</span>
           </div>
-          <div className="divide-y divide-[rgb(var(--line))]">
-            {recentTransactions.map((transaction) => (
-              <div key={`${transaction.name}-${transaction.date}`} className="grid gap-3 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-                <div>
-                  <p className="font-bold text-[rgb(var(--text-strong))]">{transaction.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{transaction.type} · {transaction.date}</p>
-                </div>
-                <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{transaction.status}</span>
-                <span className={`font-display text-xl font-bold ${transaction.amount.startsWith('+') ? 'text-emerald-500' : 'text-[rgb(var(--text-strong))]'}`}>
-                  {transaction.amount}
-                </span>
-              </div>
-            ))}
-          </div>
+          {isLoadingTransactions && (
+            <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+              Loading transactions...
+            </p>
+          )}
+          {!isLoadingTransactions && transactionsError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
+              <p className="text-sm font-bold text-red-500" role="alert">{transactionsError}</p>
+              <button
+                type="button"
+                onClick={retryTransactions}
+                className="mt-3 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!isLoadingTransactions && !transactionsError && transactions.length === 0 && (
+            <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+              No transactions yet. Your transfers will appear here.
+            </p>
+          )}
+          {!isLoadingTransactions && !transactionsError && transactions.length > 0 && (
+            <div className="divide-y divide-[rgb(var(--line))]">
+              {transactions.map((transaction) => {
+                const display = getTransactionDisplay(transaction, accounts);
+                return (
+                  <div key={transaction.transactionId} className="grid gap-3 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="break-all font-mono text-sm font-bold text-[rgb(var(--text-strong))]">{display.counterpartyIban}</p>
+                      <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">
+                        {display.direction} · {transaction.reason} · {formatTransactionDate(transaction.timestamp)}
+                      </p>
+                    </div>
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.08em] ${getTransactionStatusClass(transaction.status)}`}>
+                      {transaction.status}
+                    </span>
+                    <span className={`font-display text-xl font-bold ${display.isIncoming ? 'text-emerald-500' : 'text-[rgb(var(--text-strong))]'}`}>
+                      {display.amountLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
       {activeStep && (
@@ -2363,7 +2598,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">E-PIN Verification</p>
                 <h2 className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Confirm Transfer</h2>
                 <p className="mt-4 text-sm leading-6 text-[rgb(var(--text-muted))]">
-                  Enter your 6-digit E-PIN. This only verifies your E-PIN for now; the transaction service is not connected yet.
+                  Enter your 6-digit E-PIN to authorize and send this transfer.
                 </p>
                 <label className="mt-6 block">
                   <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">E-PIN</span>
@@ -2388,15 +2623,15 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <button
                     type="submit"
-                    disabled={isVerifyingEPin}
+                    disabled={isSubmittingTransfer}
                     className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isVerifyingEPin ? 'Checking E-PIN...' : 'Confirm & Send'}
+                    {isSubmittingTransfer ? 'Sending...' : 'Confirm & Send'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveStep('summary')}
-                    disabled={isVerifyingEPin}
+                    disabled={isSubmittingTransfer}
                     className="rounded-md border border-[rgb(var(--button-line))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Back

@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -23,7 +24,13 @@ public class ExchangeRateService {
 
     private static final Logger log = LoggerFactory.getLogger(ExchangeRateService.class);
 
-    private static final String FRANKFURTER_URL = "https://api.frankfurter.app";
+    private static final String DEFAULT_FRANKFURTER_URL = "https://api.frankfurter.dev/v1";
+    private static final String BGN = "BGN";
+    private static final String EUR = "EUR";
+    private static final int RATE_SCALE = 12;
+    private static final BigDecimal BGN_PER_EUR = new BigDecimal("1.95583");
+    private static final BigDecimal EUR_PER_BGN = BigDecimal.ONE.divide(
+            BGN_PER_EUR, RATE_SCALE, RoundingMode.HALF_EVEN);
 
     private final RestClient restClient;
     private final long cacheTtlSeconds;
@@ -51,11 +58,12 @@ public class ExchangeRateService {
 
     @Autowired
     public ExchangeRateService(
+            @Value("${app.fx.base-url:" + DEFAULT_FRANKFURTER_URL + "}") String baseUrl,
             @Value("${app.fx.cache-ttl-seconds:300}") long cacheTtlSeconds,
             @Value("${app.fx.connect-timeout-seconds:5}") int connectTimeoutSeconds,
             @Value("${app.fx.read-timeout-seconds:5}") int readTimeoutSeconds) {
         this(RestClient.builder()
-                        .baseUrl(FRANKFURTER_URL)
+                        .baseUrl(baseUrl)
                         .requestFactory(buildRequestFactory(connectTimeoutSeconds, readTimeoutSeconds)),
                 cacheTtlSeconds);
     }
@@ -148,6 +156,28 @@ public class ExchangeRateService {
      * @throws ExchangeRateUnavailableException on network failure, missing key, or invalid rate.
      */
     private BigDecimal fetchRate(String from, String to) {
+        if (BGN.equals(from)) {
+            if (EUR.equals(to)) {
+                return EUR_PER_BGN;
+            }
+            return normalizeRate(EUR_PER_BGN.multiply(fetchProviderRate(EUR, to)));
+        }
+
+        if (BGN.equals(to)) {
+            if (EUR.equals(from)) {
+                return BGN_PER_EUR;
+            }
+            return normalizeRate(fetchProviderRate(from, EUR).multiply(BGN_PER_EUR));
+        }
+
+        return fetchProviderRate(from, to);
+    }
+
+    private static BigDecimal normalizeRate(BigDecimal rate) {
+        return rate.setScale(RATE_SCALE, RoundingMode.HALF_EVEN).stripTrailingZeros();
+    }
+
+    private BigDecimal fetchProviderRate(String from, String to) {
         try {
             FrankfurterResponse response = restClient.get()
                     .uri("/latest?from={from}&to={to}", from, to)
