@@ -1,5 +1,6 @@
 package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.dto.ConfirmPaymentRequest;
 import com.elsys.safebanking.dto.PaymentIntentResponse;
 import com.elsys.safebanking.dto.TopUpRequest;
 import com.elsys.safebanking.service.PaymentService;
@@ -33,6 +34,15 @@ public class PaymentController {
     ) throws StripeException {
         PaymentIntentResponse response = paymentService.createIntent(request, principal.getName());
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/confirm")
+    public ResponseEntity<Void> confirmPayment(
+            @Valid @RequestBody ConfirmPaymentRequest request,
+            Principal principal
+    ) throws StripeException {
+        paymentService.confirmPayment(request.paymentIntentId(), principal.getName());
+        return ResponseEntity.noContent().build();
     }
 
     /**

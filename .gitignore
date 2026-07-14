@@ -77,3 +77,6 @@ application.properties
 application*.properties
 application*.yml
 safebanking/cp.txt
+
+# Added by ggshield
+.cache_ggshield

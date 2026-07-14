@@ -19,6 +19,13 @@ public interface PaymentService {
     PaymentIntentResponse createIntent(TopUpRequest request, String callerEmail) throws StripeException;
 
     /**
+     * Retrieves a PaymentIntent from Stripe and credits its target account when
+     * Stripe confirms that payment succeeded. This is an authenticated fallback
+     * for local development, where Stripe cannot deliver webhooks to localhost.
+     */
+    void confirmPayment(String paymentIntentId, String callerEmail) throws StripeException;
+
+    /**
      * Verifies the Stripe webhook signature and, for {@code payment_intent.succeeded}
      * events, credits the target account and records a {@link com.elsys.safebanking.model.StripeDeposit}.
      * All other event types are acknowledged and ignored.

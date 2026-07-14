@@ -11,6 +11,7 @@ import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.model.EventDataObjectDeserializer;
 import com.stripe.model.PaymentIntent;
+import com.stripe.param.PaymentIntentCreateParams;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +45,7 @@ class PaymentServiceImplTest {
     @Mock private BankAccountRepository   bankAccountRepository;
     @Mock private StripeDepositRepository stripeDepositRepository;
     @Mock private StripeWebhookVerifier   webhookVerifier;
+    @Mock private StripePaymentClient     stripePaymentClient;
 
     private PaymentServiceImpl paymentService;
 
@@ -52,7 +54,12 @@ class PaymentServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        paymentService = new PaymentServiceImpl(bankAccountRepository, stripeDepositRepository, webhookVerifier);
+        paymentService = new PaymentServiceImpl(
+                bankAccountRepository,
+                stripeDepositRepository,
+                webhookVerifier,
+                stripePaymentClient
+        );
         owner   = new User(EMAIL, "hash", "Alice", "Smith");
         account = new BankAccount("Savings", IBAN, new BigDecimal("500.00"), "eur", owner);
     }
@@ -78,6 +85,53 @@ class PaymentServiceImplTest {
         assertThatThrownBy(() ->
                 paymentService.createIntent(new TopUpRequest(IBAN, 1000L, "eur"), "other@example.com"))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void createIntent_convertsBgnChargeToEurAndPreservesCreditMetadata() throws Exception {
+        BankAccount bgnAccount = new BankAccount("Lev account", IBAN, BigDecimal.ZERO, "BGN", owner);
+        PaymentIntent createdIntent = mock(PaymentIntent.class);
+        when(createdIntent.getClientSecret()).thenReturn("pi_secret");
+        when(bankAccountRepository.findByIban(IBAN)).thenReturn(Optional.of(bgnAccount));
+        when(stripePaymentClient.create(any())).thenReturn(createdIntent);
+
+        paymentService.createIntent(new TopUpRequest(IBAN, 1956L, "BGN"), EMAIL);
+
+        ArgumentCaptor<PaymentIntentCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(PaymentIntentCreateParams.class);
+        verify(stripePaymentClient).create(paramsCaptor.capture());
+        PaymentIntentCreateParams params = paramsCaptor.getValue();
+        assertThat(params.getAmount()).isEqualTo(1000L);
+        assertThat(params.getCurrency()).isEqualTo("eur");
+        assertThat(params.getMetadata()).containsEntry("creditAmountCents", "1956");
+        assertThat(params.getMetadata()).containsEntry("creditCurrency", "BGN");
+    }
+
+    @Test
+    void confirmPayment_creditsSucceededIntent() throws Exception {
+        PaymentIntent intent = succeededIntent(INTENT_ID, 1000L, IBAN);
+        when(intent.getStatus()).thenReturn("succeeded");
+        when(stripePaymentClient.retrieve(INTENT_ID)).thenReturn(intent);
+        when(stripeDepositRepository.existsByStripePaymentIntentId(INTENT_ID)).thenReturn(false);
+        when(bankAccountRepository.findByIban(IBAN)).thenReturn(Optional.of(account));
+
+        paymentService.confirmPayment(INTENT_ID, EMAIL);
+
+        assertThat(account.getBalance()).isEqualByComparingTo("510.00");
+        verify(stripeDepositRepository).save(any(StripeDeposit.class));
+    }
+
+    @Test
+    void confirmPayment_rejectsIncompleteIntent() throws Exception {
+        PaymentIntent intent = mock(PaymentIntent.class);
+        when(intent.getStatus()).thenReturn("requires_payment_method");
+        when(stripePaymentClient.retrieve(INTENT_ID)).thenReturn(intent);
+
+        assertThatThrownBy(() -> paymentService.confirmPayment(INTENT_ID, EMAIL))
+                .isInstanceOf(com.elsys.safebanking.exception.InvalidRequestException.class)
+                .hasMessageContaining("has not succeeded");
+
+        verifyNoInteractions(bankAccountRepository, stripeDepositRepository);
     }
 
     // =========================================================================
@@ -109,17 +163,21 @@ class PaymentServiceImplTest {
     }
 
     // =========================================================================
-    // handleWebhook — PaymentIntent deserialization missing
+    // handleWebhook — API-version fallback deserialization
     // =========================================================================
 
     @Test
-    void handleWebhook_returnsEarly_whenDeserializerReturnsEmpty() throws SignatureVerificationException {
-        Event event = succeededEventWithEmptyDeserializer();
+    void handleWebhook_usesUnsafeDeserializer_whenSdkRejectsEventApiVersion() throws Exception {
+        PaymentIntent intent = succeededIntent(INTENT_ID, 1000L, IBAN);
+        Event event = succeededEventWithFallbackDeserializer(intent);
         when(webhookVerifier.constructEvent(any(), any())).thenReturn(event);
+        when(stripeDepositRepository.existsByStripePaymentIntentId(INTENT_ID)).thenReturn(false);
+        when(bankAccountRepository.findByIban(IBAN)).thenReturn(Optional.of(account));
 
         paymentService.handleWebhook("payload".getBytes(), "sig");
 
-        verifyNoInteractions(bankAccountRepository, stripeDepositRepository);
+        assertThat(account.getBalance()).isEqualByComparingTo("510.00");
+        verify(stripeDepositRepository).save(any(StripeDeposit.class));
     }
 
     // =========================================================================
@@ -204,9 +262,10 @@ class PaymentServiceImplTest {
         return event;
     }
 
-    private Event succeededEventWithEmptyDeserializer() {
+    private Event succeededEventWithFallbackDeserializer(PaymentIntent intent) throws Exception {
         EventDataObjectDeserializer deserializer = mock(EventDataObjectDeserializer.class);
         when(deserializer.getObject()).thenReturn(Optional.empty());
+        when(deserializer.deserializeUnsafe()).thenReturn(intent);
 
         Event event = mock(Event.class, withSettings().lenient());
         when(event.getType()).thenReturn("payment_intent.succeeded");
@@ -216,11 +275,7 @@ class PaymentServiceImplTest {
     }
 
     private Event succeededEvent(String intentId, long amountCents, String iban) {
-        PaymentIntent intent = mock(PaymentIntent.class, withSettings().lenient());
-        when(intent.getId()).thenReturn(intentId);
-        when(intent.getAmount()).thenReturn(amountCents);
-        when(intent.getCurrency()).thenReturn("eur");
-        when(intent.getMetadata()).thenReturn(Map.of("accountIban", iban));
+        PaymentIntent intent = succeededIntent(intentId, amountCents, iban);
 
         EventDataObjectDeserializer deserializer = mock(EventDataObjectDeserializer.class);
         when(deserializer.getObject()).thenReturn(Optional.of(intent));
@@ -230,5 +285,14 @@ class PaymentServiceImplTest {
         when(event.getDataObjectDeserializer()).thenReturn(deserializer);
         when(event.getId()).thenReturn("evt_test_001");
         return event;
+    }
+
+    private PaymentIntent succeededIntent(String intentId, long amountCents, String iban) {
+        PaymentIntent intent = mock(PaymentIntent.class, withSettings().lenient());
+        when(intent.getId()).thenReturn(intentId);
+        when(intent.getAmount()).thenReturn(amountCents);
+        when(intent.getCurrency()).thenReturn("eur");
+        when(intent.getMetadata()).thenReturn(Map.of("accountIban", iban));
+        return intent;
     }
 }
