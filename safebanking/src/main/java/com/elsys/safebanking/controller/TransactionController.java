@@ -9,6 +9,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -34,7 +36,7 @@ public class TransactionController {
     public ResponseEntity<Page<TransactionHistoryResponse>> getHistory(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
-            Pageable pageable) {
+            @PageableDefault(size = 30, sort = "timeStamp", direction = Sort.Direction.DESC) Pageable pageable) {
 
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         Long userId = userRepository.findByEmail(email)
@@ -53,6 +55,9 @@ public class TransactionController {
                 t.getSourceAccount().getIban(),
                 t.getDestinationAccount().getIban(),
                 t.getAmount(),
+                t.getCreditedAmount(),
+                t.getSourceCurrency(),
+                t.getDestinationCurrency(),
                 t.getReason(),
                 t.getStatus(),
                 t.getTimeStamp()
