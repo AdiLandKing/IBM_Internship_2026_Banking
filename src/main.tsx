@@ -963,15 +963,6 @@ function AccountsPage({
     isSelectedAccountSuspended,
   );
   const IbanVisibilityIcon = isIbanVisible ? EyeOff : Eye;
-  const SelectedAccountLockIcon = isSelectedAccountSuspended ? Unlock : LockKeyhole;
-  let selectedAccountLockLabel = 'Lock account';
-  if (isUpdatingAccountStatus) {
-    selectedAccountLockLabel = 'Updating...';
-  } else if (isSelectedAccountSuspended) {
-    selectedAccountLockLabel = 'Unlock account';
-  } else if (isSelectedAccountBlocked) {
-    selectedAccountLockLabel = 'Blocked by admin';
-  }
 
   const loadAccounts = React.useCallback(async (preferredAccountId?: string) => {
     setIsLoadingAccounts(true);
@@ -996,7 +987,7 @@ function AccountsPage({
   }, [authSession]);
 
   React.useEffect(() => {
-    void loadAccounts();
+    runAsyncAction(() => loadAccounts());
   }, [loadAccounts]);
 
   function selectAccount(account: ClientAccount) {
@@ -1165,7 +1156,7 @@ function AccountsPage({
             <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
             <button
               type="button"
-              onClick={() => void loadAccounts()}
+              onClick={() => runAsyncAction(() => loadAccounts())}
               className="mt-5 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
             >
               Retry
@@ -1350,7 +1341,7 @@ function AccountsPage({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void toggleSelectedAccountLock()}
+                  onClick={() => runAsyncAction(toggleSelectedAccountLock)}
                   disabled={isUpdatingAccountStatus || isSelectedAccountBlocked}
                   className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -2597,7 +2588,282 @@ function PortfolioPage({
   );
 }
 
-function AdminPage({ authSession, showHome }: { authSession: AuthSession; showHome: () => void }) {
+type AdminPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+}>;
+
+type AdminUsersPanelProps = Readonly<{
+  searchQuery: string;
+  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+  accountActionError: string;
+  isLoadingUsers: boolean;
+  usersError: string;
+  filteredUsers: AdminUserResponse[];
+  updatingAccountIban: string | null;
+  loadUsers: () => Promise<void>;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminUserCardProps = Readonly<{
+  user: AdminUserResponse;
+  updatingAccountIban: string | null;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminAccountRowProps = Readonly<{
+  account: AccountResponse;
+  updatingAccountIban: string | null;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminTransactionsPanelProps = Readonly<{
+  isLoadingTransactions: boolean;
+  transactionsError: string;
+  transactions: AdminTransactionResponse[];
+  loadTransactions: () => Promise<void>;
+}>;
+
+type AdminRetryPanelProps = Readonly<{
+  message: string;
+  onRetry: () => Promise<void>;
+}>;
+
+function runAsyncAction(action: () => Promise<void>) {
+  action().catch(() => undefined);
+}
+
+function getAdminAccountStatusClass(status: AccountStatus) {
+  return status === 'BLOCKED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500';
+}
+
+function getAdminUserStatusClass(isActive: boolean) {
+  return isActive ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500';
+}
+
+function getClientQueuePriorityClass(priority: string) {
+  if (priority === 'High') return 'bg-red-500/15 text-red-500';
+  if (priority === 'Medium') return 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]';
+  return 'bg-emerald-500/15 text-emerald-500';
+}
+
+function getAdminAccountAction(status: AccountStatus) {
+  return status === 'BLOCKED' ? 'unblock' : 'block';
+}
+
+function getAdminAccountActionLabel(isUpdating: boolean, action: string) {
+  if (isUpdating) return 'Updating...';
+  return action === 'block' ? 'Block' : 'Unblock';
+}
+
+function updateUsersWithAccount(currentUsers: AdminUserResponse[], updatedAccount: AccountResponse) {
+  return currentUsers.map((user) => ({
+    ...user,
+    accounts: user.accounts.map((candidate) => (
+      candidate.iban === updatedAccount.iban ? updatedAccount : candidate
+    )),
+  }));
+}
+
+function AdminRetryPanel({ message, onRetry }: AdminRetryPanelProps) {
+  return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+      <p className="text-sm font-bold text-red-500" role="alert">{message}</p>
+      <button
+        type="button"
+        onClick={() => runAsyncAction(onRetry)}
+        className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function AdminAccountRow({ account, updatingAccountIban, toggleAdminAccountStatus }: AdminAccountRowProps) {
+  const action = getAdminAccountAction(account.status);
+  const isUpdating = updatingAccountIban === account.iban;
+  const actionLabel = getAdminAccountActionLabel(isUpdating, action);
+
+  return (
+    <div className="grid gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+      <div>
+        <p className="font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
+        <p className="mt-1 font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{account.iban} · {account.currency}</p>
+      </div>
+      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getAdminAccountStatusClass(account.status)}`}>
+        {account.status}
+      </span>
+      <button
+        type="button"
+        onClick={() => runAsyncAction(() => toggleAdminAccountStatus(account))}
+        disabled={Boolean(updatingAccountIban)}
+        className="rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function AdminUserCard({ user, updatingAccountIban, toggleAdminAccountStatus }: AdminUserCardProps) {
+  return (
+    <div className="grid gap-4 py-5">
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+        <div>
+          <p className="font-bold text-[rgb(var(--text-strong))]">{user.firstName} {user.lastName}</p>
+          <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">
+            {user.email} · {user.accountCount} account{user.accountCount === 1 ? '' : 's'}
+          </p>
+        </div>
+        <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getAdminUserStatusClass(user.active)}`}>
+          {user.active ? 'Active' : 'Inactive'}
+        </span>
+      </div>
+      <div className="grid gap-3">
+        {user.accounts.length > 0 ? (
+          user.accounts.map((account) => (
+            <AdminAccountRow
+              key={account.iban}
+              account={account}
+              updatingAccountIban={updatingAccountIban}
+              toggleAdminAccountStatus={toggleAdminAccountStatus}
+            />
+          ))
+        ) : (
+          <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))]">
+            No accounts for this user.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminUsersPanel({
+  searchQuery,
+  setSearchQuery,
+  accountActionError,
+  isLoadingUsers,
+  usersError,
+  filteredUsers,
+  updatingAccountIban,
+  loadUsers,
+  toggleAdminAccountStatus,
+}: AdminUsersPanelProps) {
+  let content = (
+    <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+      No users found.
+    </p>
+  );
+
+  if (isLoadingUsers) {
+    content = (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading users...
+      </p>
+    );
+  } else if (usersError) {
+    content = <AdminRetryPanel message={usersError} onRetry={loadUsers} />;
+  } else if (filteredUsers.length > 0) {
+    content = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {filteredUsers.map((user) => (
+          <AdminUserCard
+            key={user.email}
+            user={user}
+            updatingAccountIban={updatingAccountIban}
+            toggleAdminAccountStatus={toggleAdminAccountStatus}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="mb-5 block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
+        <input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+          placeholder="Search by name, email, account, IBAN, or status"
+        />
+      </label>
+      {accountActionError && (
+        <p className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+          {accountActionError}
+        </p>
+      )}
+      {content}
+    </div>
+  );
+}
+
+function AdminTransactionRow({ transaction }: Readonly<{ transaction: AdminTransactionResponse }>) {
+  const amount = formatCurrencyAmount(Number(transaction.amount), transaction.sourceCurrency);
+  const creditedAmount = formatCurrencyAmount(Number(transaction.creditedAmount), transaction.destinationCurrency);
+  const statusClass = transaction.status === 'FAILED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500';
+
+  return (
+    <div className="grid gap-3 py-4 xl:grid-cols-[0.65fr_1fr_auto_auto] xl:items-center">
+      <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">TRF-{transaction.transactionId}</span>
+      <div>
+        <p className="break-all font-mono text-xs font-bold text-[rgb(var(--text-strong))]">{transaction.sourceIban}</p>
+        <p className="mt-1 break-all font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{transaction.destinationIban}</p>
+        <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">
+          {transaction.reason} · {formatProfileDate(transaction.timeStamp, 'Date unavailable')}
+        </p>
+      </div>
+      <div className="text-left xl:text-right">
+        <span className="block font-display text-xl font-bold text-[rgb(var(--text-strong))]">{amount}</span>
+        <span className="mt-1 block text-xs font-bold text-[rgb(var(--text-muted))]">Credited {creditedAmount}</span>
+      </div>
+      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${statusClass}`}>
+        {transaction.status}
+      </span>
+    </div>
+  );
+}
+
+function AdminTransactionsPanel({
+  isLoadingTransactions,
+  transactionsError,
+  transactions,
+  loadTransactions,
+}: AdminTransactionsPanelProps) {
+  if (isLoadingTransactions) {
+    return (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading transfer logs...
+      </p>
+    );
+  }
+
+  if (transactionsError) {
+    return <AdminRetryPanel message={transactionsError} onRetry={loadTransactions} />;
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        No transfer logs found.
+      </p>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-[rgb(var(--line))]">
+      {transactions.map((transaction) => (
+        <AdminTransactionRow key={transaction.transactionId} transaction={transaction} />
+      ))}
+    </div>
+  );
+}
+
+function AdminPage({ authSession, showHome }: AdminPageProps) {
   const [activeMenu, setActiveMenu] = React.useState<AdminMenuId>('pending');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [users, setUsers] = React.useState<AdminUserResponse[]>([]);
@@ -2652,10 +2918,10 @@ function AdminPage({ authSession, showHome }: { authSession: AuthSession; showHo
 
   React.useEffect(() => {
     if (activeMenu === 'users') {
-      void loadUsers();
+      runAsyncAction(loadUsers);
     }
     if (activeMenu === 'logs') {
-      void loadTransactions();
+      runAsyncAction(loadTransactions);
     }
   }, [activeMenu, loadTransactions, loadUsers]);
 
@@ -2665,12 +2931,7 @@ function AdminPage({ authSession, showHome }: { authSession: AuthSession; showHo
     setAccountActionError('');
     try {
       const updatedAccount = await updateAdminAccountStatus(authSession, account.iban, action);
-      setUsers((currentUsers) => currentUsers.map((user) => ({
-        ...user,
-        accounts: user.accounts.map((candidate) => (
-          candidate.iban === updatedAccount.iban ? updatedAccount : candidate
-        )),
-      })));
+      setUsers((currentUsers) => updateUsersWithAccount(currentUsers, updatedAccount));
     } catch (error) {
       setAccountActionError(error instanceof Error ? error.message : `Unable to ${action} account.`);
     } finally {
@@ -2780,15 +3041,7 @@ function AdminPage({ authSession, showHome }: { authSession: AuthSession; showHo
                       <p className="font-bold text-[rgb(var(--text-strong))]">{item.name}</p>
                       <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{item.request} · {item.time}</p>
                     </div>
-                    <span
-                      className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${
-                        item.priority === 'High'
-                          ? 'bg-red-500/15 text-red-500'
-                          : item.priority === 'Medium'
-                            ? 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]'
-                            : 'bg-emerald-500/15 text-emerald-500'
-                      }`}
-                    >
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getClientQueuePriorityClass(item.priority)}`}>
                       {item.priority}
                     </span>
                     <div className="flex gap-2">
@@ -2805,139 +3058,26 @@ function AdminPage({ authSession, showHome }: { authSession: AuthSession; showHo
             )}
 
             {activeMenu === 'users' && (
-              <div>
-                <label className="mb-5 block">
-                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
-                  <input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                    placeholder="Search by name, email, account, IBAN, or status"
-                  />
-                </label>
-                {accountActionError && (
-                  <p className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
-                    {accountActionError}
-                  </p>
-                )}
-                {isLoadingUsers ? (
-                  <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
-                    Loading users...
-                  </p>
-                ) : usersError ? (
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
-                    <p className="text-sm font-bold text-red-500" role="alert">{usersError}</p>
-                    <button
-                      type="button"
-                      onClick={() => void loadUsers()}
-                      className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : filteredUsers.length > 0 ? (
-                  <div className="divide-y divide-[rgb(var(--line))]">
-                    {filteredUsers.map((user) => (
-                      <div key={user.email} className="grid gap-4 py-5">
-                        <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
-                          <div>
-                            <p className="font-bold text-[rgb(var(--text-strong))]">{user.firstName} {user.lastName}</p>
-                            <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{user.email} · {user.accountCount} account{user.accountCount === 1 ? '' : 's'}</p>
-                          </div>
-                          <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
-                          <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${user.active ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500'}`}>
-                            {user.active ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
-                        <div className="grid gap-3">
-                          {user.accounts.length > 0 ? user.accounts.map((account) => {
-                            const action = account.status === 'BLOCKED' ? 'unblock' : 'block';
-                            const isUpdating = updatingAccountIban === account.iban;
-                            return (
-                              <div key={account.iban} className="grid gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
-                                <div>
-                                  <p className="font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
-                                  <p className="mt-1 font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{account.iban} · {account.currency}</p>
-                                </div>
-                                <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${account.status === 'BLOCKED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
-                                  {account.status}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => void toggleAdminAccountStatus(account)}
-                                  disabled={Boolean(updatingAccountIban)}
-                                  className="rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {isUpdating ? 'Updating...' : action === 'block' ? 'Block' : 'Unblock'}
-                                </button>
-                              </div>
-                            );
-                          }) : (
-                            <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))]">
-                              No accounts for this user.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
-                    No users found.
-                  </p>
-                )}
-              </div>
+              <AdminUsersPanel
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                accountActionError={accountActionError}
+                isLoadingUsers={isLoadingUsers}
+                usersError={usersError}
+                filteredUsers={filteredUsers}
+                updatingAccountIban={updatingAccountIban}
+                loadUsers={loadUsers}
+                toggleAdminAccountStatus={toggleAdminAccountStatus}
+              />
             )}
 
             {activeMenu === 'logs' && (
-              <div>
-                {isLoadingTransactions ? (
-                  <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
-                    Loading transfer logs...
-                  </p>
-                ) : transactionsError ? (
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
-                    <p className="text-sm font-bold text-red-500" role="alert">{transactionsError}</p>
-                    <button
-                      type="button"
-                      onClick={() => void loadTransactions()}
-                      className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : transactions.length > 0 ? (
-                  <div className="divide-y divide-[rgb(var(--line))]">
-                    {transactions.map((transaction) => (
-                      <div key={transaction.transactionId} className="grid gap-3 py-4 xl:grid-cols-[0.65fr_1fr_auto_auto] xl:items-center">
-                        <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">TRF-{transaction.transactionId}</span>
-                        <div>
-                          <p className="break-all font-mono text-xs font-bold text-[rgb(var(--text-strong))]">{transaction.sourceIban}</p>
-                          <p className="mt-1 break-all font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{transaction.destinationIban}</p>
-                          <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">
-                            {transaction.reason} · {formatProfileDate(transaction.timeStamp, 'Date unavailable')}
-                          </p>
-                        </div>
-                        <div className="text-left xl:text-right">
-                          <span className="block font-display text-xl font-bold text-[rgb(var(--text-strong))]">
-                            {formatCurrencyAmount(Number(transaction.amount), transaction.sourceCurrency)}
-                          </span>
-                          <span className="mt-1 block text-xs font-bold text-[rgb(var(--text-muted))]">
-                            Credited {formatCurrencyAmount(Number(transaction.creditedAmount), transaction.destinationCurrency)}
-                          </span>
-                        </div>
-                        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${transaction.status === 'FAILED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
-                          {transaction.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
-                    No transfer logs found.
-                  </p>
-                )}
-              </div>
+              <AdminTransactionsPanel
+                isLoadingTransactions={isLoadingTransactions}
+                transactionsError={transactionsError}
+                transactions={transactions}
+                loadTransactions={loadTransactions}
+              />
             )}
 
             {activeMenu === 'access' && (
