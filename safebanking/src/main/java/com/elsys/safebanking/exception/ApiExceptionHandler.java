@@ -109,6 +109,12 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(HttpStatus.CONFLICT.value(), "Account State Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(InssuficientFundsException.class)
+    public ResponseEntity<ApiError> handleInsufficientFunds(InssuficientFundsException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiError.of(HttpStatus.UNPROCESSABLE_ENTITY.value(), "Unprocessable Entity", ex.getMessage()));
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleConflict(ObjectOptimisticLockingFailureException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

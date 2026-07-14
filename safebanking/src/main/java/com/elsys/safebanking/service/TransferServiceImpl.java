@@ -2,7 +2,9 @@ package com.elsys.safebanking.service;
 
 import com.elsys.safebanking.dto.TransferRequest;
 import com.elsys.safebanking.dto.TransferResponse;
+import com.elsys.safebanking.exception.AccountStateConflictException;
 import com.elsys.safebanking.exception.ForbiddenAccessException;
+import com.elsys.safebanking.exception.InssuficientFundsException;
 import com.elsys.safebanking.exception.InvalidRequestException;
 import com.elsys.safebanking.exception.ResourceNotFoundException;
 import com.elsys.safebanking.model.*;
@@ -78,11 +80,11 @@ public class TransferServiceImpl implements TransferService {
 
         // 5. Check Status
         if (sourceAccount.getStatus() != AccountStatus.ACTIVE) {
-            throw new IllegalStateException("Source account is not active");
+            throw new AccountStateConflictException("Source account is not active");
         }
 
         if (destinationAccount.getStatus() != AccountStatus.ACTIVE) {
-            throw new IllegalStateException("Destination account is not active");
+            throw new AccountStateConflictException("Destination account is not active");
         }
 
         // 6. Fetch FX rate (throws ExchangeRateUnavailableException → 503 if unavailable)
@@ -95,11 +97,7 @@ public class TransferServiceImpl implements TransferService {
 
         // 7. Check Balance
         if (sourceAccount.getBalance().compareTo(debitedAmount) < 0) {
-            return createFailedTransaction(
-                    sourceAccount, destinationAccount,
-                    debitedAmount, creditedAmount,
-                    srcCurrency, dstCurrency, fxRate,
-                    request.reason(), "Insufficient funds");
+            throw new InssuficientFundsException("Insufficient funds for transfer");
         }
 
         // 8. Debit source (source currency), credit destination (destination currency)
