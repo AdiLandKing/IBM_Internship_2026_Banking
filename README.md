@@ -1,4 +1,4 @@
-# SAFE Banking — Mock Banking System
+# SAFE Banking — Banking System
 
 A full-stack mock banking application built as part of an IBM internship project. It simulates core retail banking operations including multi-currency accounts, peer-to-peer transfers with live FX conversion, card top-ups via Stripe, and an admin panel for oversight.
 
