@@ -1,5 +1,6 @@
 package com.elsys.safebanking.controller;
 
+import com.elsys.safebanking.dto.ConfirmPaymentRequest;
 import com.elsys.safebanking.dto.PaymentIntentResponse;
 import com.elsys.safebanking.dto.TopUpRequest;
 import com.elsys.safebanking.service.AppUserDetailsService;
@@ -94,6 +95,30 @@ class PaymentControllerTest {
                                 new TopUpRequest("GB29NWBK60161331926819", 1000L, null))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.currency").exists());
+    }
+
+    @Test
+    @WithMockUser(username = "alice@example.com")
+    void confirmPayment_withSucceededIntent_returnsNoContent() throws Exception {
+        doNothing().when(paymentService).confirmPayment("pi_test_123", "alice@example.com");
+
+        mockMvc.perform(post("/api/payments/confirm")
+                        .principal(() -> "alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ConfirmPaymentRequest("pi_test_123"))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @WithMockUser
+    void confirmPayment_withMissingIntentId_returnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/payments/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ConfirmPaymentRequest(""))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.paymentIntentId").exists());
     }
 
     // =========================================================================

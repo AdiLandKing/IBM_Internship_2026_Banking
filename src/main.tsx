@@ -1,5 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
+import { loadStripe, type StripeCardElementOptions } from '@stripe/stripe-js';
 import { Activity, ArrowLeft, Calendar, Check, ChartPie, Copy, CreditCard, Eye, EyeOff, KeyRound, Landmark, LockKeyhole, Mail, Moon, Pencil, Plus, Search, Settings, ShieldCheck, Sun, Unlock, UserPlus, UserRound, Users, Wallet, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './styles.css';
@@ -111,6 +113,10 @@ type PortfolioHolding = {
   status: string;
 };
 
+type AccountPortfolioHolding = PortfolioHolding & {
+  account: ClientAccount;
+};
+
 type TransferDraft = {
   sourceAccountIban: string;
   destinationAccountIban: string;
@@ -143,6 +149,10 @@ type TransactionPageResponse = {
 type TransferResponse = {
   transactionId: number;
   status: TransactionStatus;
+};
+
+type PaymentIntentResponse = {
+  clientSecret: string;
 };
 
 class ApiRequestError extends Error {
@@ -208,10 +218,12 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 type AuthMode = 'login' | 'register';
 type PageMode = 'home' | 'accounts' | 'profile' | 'transactions' | 'portfolio' | 'admin';
 
-const DEFAULT_API_BASE_URL = typeof window !== 'undefined' && window.location.port !== '5173'
+const CONFIGURED_API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
+const API_BASE_URL = typeof window !== 'undefined' && window.location.port !== '5173'
   ? window.location.origin
-  : 'http://127.0.0.1:8080';
-const API_BASE_URL = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, '');
+  : (CONFIGURED_API_BASE_URL || 'http://127.0.0.1:8080').replace(/\/$/, '');
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ?? '';
+const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
 const AUTH_STORAGE_KEY = 'safe-bank-auth-session';
 
 type UserProfile = {
@@ -491,6 +503,50 @@ async function fetchAccounts(authSession: AuthSession): Promise<ClientAccount[]>
 
   const accounts = await response.json() as AccountResponse[];
   return accounts.map(accountResponseToClientAccount);
+}
+
+async function createTopUpPaymentIntent(
+  authSession: AuthSession,
+  account: ClientAccount,
+  amountCents: number,
+): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/payments/create-intent`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      accountIban: account.iban,
+      amountCents,
+      currency: account.currency,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to start the top up.'));
+  }
+
+  const paymentIntent = await response.json() as PaymentIntentResponse;
+  if (!paymentIntent.clientSecret) {
+    throw new Error('Stripe did not return a payment client secret.');
+  }
+  return paymentIntent.clientSecret;
+}
+
+async function confirmTopUpPayment(authSession: AuthSession, paymentIntentId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/payments/confirm`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ paymentIntentId }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Stripe confirmed the card payment, but the account could not be credited.'));
+  }
 }
 
 async function lookupRecipientAccount(authSession: AuthSession, iban: string): Promise<RecipientAccountResponse> {
@@ -958,7 +1014,7 @@ function getPortfolioRiskProfile(accounts: ClientAccount[]) {
   return new Set(accounts.map((account) => account.currency)).size > 1 ? 'Diversified cash' : 'Cash reserve';
 }
 
-function getPortfolioHoldings(accounts: ClientAccount[]): PortfolioHolding[] {
+function getPortfolioHoldings(accounts: ClientAccount[]): AccountPortfolioHolding[] {
   const positiveTotal = accounts.reduce((sum, account) => sum + Math.max(account.balance, 0), 0);
 
   return accounts.map((account) => {
@@ -966,6 +1022,7 @@ function getPortfolioHoldings(accounts: ClientAccount[]): PortfolioHolding[] {
     const allocationLabel = `${allocation}%`;
 
     return {
+      account,
       name: account.name,
       category: `${account.currency} Account`,
       value: formatAccountBalance(account),
@@ -1004,6 +1061,224 @@ function maskIban(iban: string) {
   return `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}`;
 }
 
+function getTopUpAmountCents(value: string) {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
+  if (!match) return null;
+
+  const wholeAmount = Number(match[1]);
+  const decimalAmount = Number((match[2] ?? '').padEnd(2, '0'));
+  const amountCents = (wholeAmount * 100) + decimalAmount;
+  return Number.isSafeInteger(amountCents) && amountCents > 0 ? amountCents : null;
+}
+
+type TopUpFormProps = Readonly<{
+  account: ClientAccount;
+  authSession: AuthSession;
+  onClose: () => void;
+  onPaymentConfirmed: () => Promise<void>;
+}>;
+
+function TopUpForm({ account, authSession, onClose, onPaymentConfirmed }: TopUpFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [amount, setAmount] = React.useState('');
+  const [isCardComplete, setIsCardComplete] = React.useState(false);
+  const [isPaying, setIsPaying] = React.useState(false);
+  const [paymentError, setPaymentError] = React.useState('');
+  const [paymentSuccess, setPaymentSuccess] = React.useState('');
+  const isLightTheme = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
+  const cardOptions = {
+    hidePostalCode: true,
+    style: {
+      base: {
+        color: isLightTheme ? '#181915' : '#f3f1ea',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '16px',
+        fontSmoothing: 'antialiased',
+        '::placeholder': {
+          color: isLightTheme ? '#777b75' : '#8b8b87',
+        },
+      },
+      invalid: {
+        color: '#ef4444',
+        iconColor: '#ef4444',
+      },
+    },
+  } satisfies StripeCardElementOptions;
+
+  async function pay(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPaymentError('');
+
+    const amountCents = getTopUpAmountCents(amount);
+    if (!amountCents) {
+      setPaymentError('Enter an amount greater than zero with no more than two decimal places.');
+      return;
+    }
+    if (!stripe || !elements) {
+      setPaymentError('The secure payment form is still loading.');
+      return;
+    }
+
+    const card = elements.getElement(CardElement);
+    if (!card || !isCardComplete) {
+      setPaymentError('Enter complete card details.');
+      return;
+    }
+
+    setIsPaying(true);
+    try {
+      const clientSecret = await createTopUpPaymentIntent(authSession, account, amountCents);
+      const confirmation = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: { card },
+      });
+
+      if (confirmation.error) {
+        setPaymentError(confirmation.error.message ?? 'Stripe could not confirm the payment.');
+        return;
+      }
+      if (confirmation.paymentIntent?.status !== 'succeeded') {
+        setPaymentError('The payment was not completed. Please try again.');
+        return;
+      }
+
+      await confirmTopUpPayment(authSession, confirmation.paymentIntent.id);
+      await onPaymentConfirmed();
+      setPaymentSuccess(`${formatCurrencyAmount(amountCents / 100, account.currency)} was added successfully.`);
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : 'Unable to complete the top up.');
+    } finally {
+      setIsPaying(false);
+    }
+  }
+
+  if (paymentSuccess) {
+    return (
+      <div className="mt-7">
+        <output className="block rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-500">
+          {paymentSuccess}
+        </output>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form className="mt-7 space-y-5" onSubmit={pay}>
+      <label className="block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">
+          Amount ({account.currency})
+        </span>
+        <input
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          inputMode="decimal"
+          autoFocus
+          placeholder="0.00"
+          disabled={isPaying}
+          className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))] disabled:opacity-60"
+        />
+      </label>
+      <div>
+        <p className="mb-2 text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Card details</p>
+        <div className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3.5 focus-within:border-[rgb(var(--gold))]">
+          <CardElement
+            options={cardOptions}
+            onChange={(event) => {
+              setIsCardComplete(event.complete);
+              if (event.error) setPaymentError(event.error.message);
+            }}
+          />
+        </div>
+        <p className="mt-2 text-xs font-semibold leading-5 text-[rgb(var(--text-muted))]">
+          {account.currency === 'BGN'
+            ? 'Card details are handled securely by Stripe. BGN top-ups are charged in EUR at the fixed conversion rate.'
+            : 'Card details are handled securely by Stripe.'}
+        </p>
+      </div>
+      {paymentError && <p className="text-sm font-bold text-red-500" role="alert">{paymentError}</p>}
+      <button
+        type="submit"
+        disabled={isPaying || !stripe || !elements || !isCardComplete}
+        className="w-full rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+      >
+        {isPaying ? 'Processing...' : 'Pay'}
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={isPaying}
+        className="w-full rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+type TopUpModalProps = Readonly<{
+  account: ClientAccount;
+  authSession: AuthSession;
+  onClose: () => void;
+  onPaymentConfirmed: () => Promise<void>;
+}>;
+
+function TopUpModal({ account, authSession, onClose, onPaymentConfirmed }: TopUpModalProps) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center px-5 py-8">
+      <button type="button" aria-label="Close top up popup" className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={onClose} />
+      <dialog
+        open
+        aria-labelledby="top-up-title"
+        className="relative max-h-[calc(100vh-4rem)] w-full max-w-[480px] overflow-y-auto rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.45)] sm:p-8"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[rgb(var(--line))] text-[rgb(var(--text-muted))] transition hover:border-[rgb(var(--gold))] hover:text-[rgb(var(--text-strong))]"
+          aria-label="Close top up popup"
+        >
+          <X size={17} strokeWidth={1.8} />
+        </button>
+        <div className="grid h-12 w-12 place-items-center rounded-full border border-[rgb(var(--gold))]/35 bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]">
+          <CreditCard size={20} strokeWidth={1.8} />
+        </div>
+        <p className="mt-6 text-[0.68rem] font-extrabold uppercase tracking-[0.3em] text-[rgb(var(--gold))]">Secure Card Payment</p>
+        <h2 id="top-up-title" className="mt-3 font-display text-4xl font-semibold text-[rgb(var(--text-strong))]">Top up account</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[rgb(var(--text-muted))]">
+          {account.name} · {maskIban(account.iban)} · {account.currency}
+        </p>
+
+        {stripePromise ? (
+          <Elements stripe={stripePromise} options={{ locale: 'en' }}>
+            <TopUpForm
+              account={account}
+              authSession={authSession}
+              onClose={onClose}
+              onPaymentConfirmed={onPaymentConfirmed}
+            />
+          </Elements>
+        ) : (
+          <div className="mt-7">
+            <p className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold leading-6 text-red-500" role="alert">
+              Stripe is not configured. Set VITE_STRIPE_PUBLISHABLE_KEY and restart the frontend.
+            </p>
+            <button type="button" onClick={onClose} className="mt-5 w-full rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))]">
+              Close
+            </button>
+          </div>
+        )}
+      </dialog>
+    </div>
+  );
+}
+
 function AccountsPage({
   showHome,
   showTransactions,
@@ -1028,6 +1303,7 @@ function AccountsPage({
   const [isUpdatingAccountStatus, setIsUpdatingAccountStatus] = React.useState(false);
   const [isIbanVisible, setIsIbanVisible] = React.useState(false);
   const [copiedAccountId, setCopiedAccountId] = React.useState<string | null>(null);
+  const [topUpAccount, setTopUpAccount] = React.useState<ClientAccount | null>(null);
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
   const selectedName = selectedAccount?.name ?? '';
@@ -1072,6 +1348,17 @@ function AccountsPage({
     setEditingName(false);
     setIsIbanVisible(false);
     setAccountActionError('');
+  }
+
+  function openTopUp(account: ClientAccount) {
+    selectAccount(account);
+    setAccountSuccess('');
+    setTopUpAccount(account);
+  }
+
+  async function refreshAfterTopUp(account: ClientAccount) {
+    await loadAccounts(account.id);
+    setAccountSuccess(`Top up for ${account.name} was confirmed.`);
   }
 
   function startRenaming() {
@@ -1269,37 +1556,52 @@ function AccountsPage({
                   const isLocked = account.status !== 'ACTIVE';
                   const AccountIcon = isLocked ? LockKeyhole : CreditCard;
                   return (
-                    <button
+                    <div
                       key={account.id}
-                      type="button"
-                      onClick={() => selectAccount(account)}
-                      className={`w-full px-5 py-5 text-left transition ${
+                      className={`transition ${
                         isSelected
                           ? 'bg-[rgb(var(--icon-bg))]'
                           : 'hover:bg-[rgb(var(--service-hover))]'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="truncate font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
-                          <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
+                      <button
+                        type="button"
+                        onClick={() => selectAccount(account)}
+                        className="w-full px-5 pb-3 pt-5 text-left"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <p className="truncate font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
+                            <p className="mt-1 text-xs font-semibold text-[rgb(var(--text-muted))]">{account.type}</p>
+                          </div>
+                          <AccountIcon
+                            size={18}
+                            strokeWidth={1.7}
+                            className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
+                          />
                         </div>
-                        <AccountIcon
-                          size={18}
-                          strokeWidth={1.7}
-                          className={isSelected ? 'text-[rgb(var(--gold))]' : 'text-[rgb(var(--text-muted))]'}
-                        />
+                        <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <p className="text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
+                          {account.status !== 'ACTIVE' && (
+                            <span className="rounded-full border border-[rgb(var(--line))] px-2 py-0.5 text-[0.62rem] font-extrabold uppercase tracking-[0.14em] text-[rgb(var(--gold))]">
+                              {account.status}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                      <div className="px-5 pb-5">
+                        <button
+                          type="button"
+                          onClick={() => openTopUp(account)}
+                          disabled={isLocked}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-4 py-2.5 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <Plus size={15} strokeWidth={2} />
+                          Top up
+                        </button>
                       </div>
-                      <p className="mt-5 font-display text-2xl font-bold text-[rgb(var(--text-strong))]">{formatAccountBalance(account)}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <p className="text-xs font-semibold tracking-[0.08em] text-[rgb(var(--text-muted))]">{maskIban(account.iban)}</p>
-                        {account.status !== 'ACTIVE' && (
-                          <span className="rounded-full border border-[rgb(var(--line))] px-2 py-0.5 text-[0.62rem] font-extrabold uppercase tracking-[0.14em] text-[rgb(var(--gold))]">
-                            {account.status}
-                          </span>
-                        )}
-                      </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1505,6 +1807,14 @@ function AccountsPage({
             </form>
           </dialog>
         </div>
+      )}
+      {topUpAccount && (
+        <TopUpModal
+          account={topUpAccount}
+          authSession={authSession}
+          onClose={() => setTopUpAccount(null)}
+          onPaymentConfirmed={() => refreshAfterTopUp(topUpAccount)}
+        />
       )}
     </section>
   );
@@ -2660,6 +2970,7 @@ function PortfolioPage({
   const [accounts, setAccounts] = React.useState<ClientAccount[]>([]);
   const [portfolioError, setPortfolioError] = React.useState('');
   const [isLoadingPortfolio, setIsLoadingPortfolio] = React.useState(true);
+  const [topUpAccount, setTopUpAccount] = React.useState<ClientAccount | null>(null);
 
   const loadPortfolio = React.useCallback(async () => {
     setIsLoadingPortfolio(true);
@@ -2727,14 +3038,25 @@ function PortfolioPage({
     holdingsContent = (
       <div className="divide-y divide-[rgb(var(--line))]">
         {holdings.map((holding) => (
-          <div key={holding.name} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
+          <div key={holding.account.id} className="grid gap-3 py-5 sm:grid-cols-[1.1fr_0.7fr_auto_auto] sm:items-center">
             <div>
               <p className="font-bold text-[rgb(var(--text-strong))]">{holding.name}</p>
               <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{holding.category}</p>
             </div>
             <span className="text-sm font-extrabold text-[rgb(var(--text-muted))]">{holding.allocation} allocation</span>
             <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{holding.value}</span>
-            <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
+            <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+              <span className="text-sm font-extrabold text-emerald-500">{holding.status}</span>
+              <button
+                type="button"
+                onClick={() => setTopUpAccount(holding.account)}
+                disabled={holding.account.status !== 'ACTIVE'}
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Plus size={14} strokeWidth={2} />
+                Top up
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -2819,6 +3141,14 @@ function PortfolioPage({
           {holdingsContent}
         </div>
       </div>
+      {topUpAccount && (
+        <TopUpModal
+          account={topUpAccount}
+          authSession={authSession}
+          onClose={() => setTopUpAccount(null)}
+          onPaymentConfirmed={loadPortfolio}
+        />
+      )}
     </section>
   );
 }
