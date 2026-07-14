@@ -2124,6 +2124,13 @@ function getTransferApiFieldErrors(fieldErrors: Record<string, string>): Transfe
   return validationErrors;
 }
 
+function getTransferSuccessMessage(transfer: TransferResponse) {
+  if (transfer.status === 'PENDING') {
+    return `Transfer #${transfer.transactionId} was submitted and is pending.`;
+  }
+  return `Transfer #${transfer.transactionId} completed successfully.`;
+}
+
 function formatTransactionDate(timestamp: string) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return 'Date unavailable';
@@ -2301,9 +2308,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
         sourceAccountIban: draft.sourceAccountIban,
         currency: sourceAccount?.currency ?? 'EUR',
       });
-      setTransferNotice(transfer.status === 'PENDING'
-        ? `Transfer #${transfer.transactionId} was submitted and is pending.`
-        : `Transfer #${transfer.transactionId} completed successfully.`);
+      setTransferNotice(getTransferSuccessMessage(transfer));
     } catch (error) {
       if (isEPinVerified) {
         if (error instanceof ApiRequestError) {
