@@ -9,6 +9,9 @@ public record TransactionHistoryResponse(
         String sourceIban,
         String destinationIban,
         BigDecimal amount,
+        BigDecimal creditedAmount,
+        String sourceCurrency,
+        String destinationCurrency,
         String reason,
         TransactionStatus status,
         Instant timestamp

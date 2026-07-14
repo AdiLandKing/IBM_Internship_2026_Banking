@@ -22,7 +22,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class ExchangeRateServiceTest {
 
-    private static final String BASE_URL = "https://api.frankfurter.app";
+    private static final String BASE_URL = "https://api.frankfurter.dev/v1";
 
     private MockRestServiceServer mockServer;
     private ExchangeRateService   service;
@@ -73,6 +73,56 @@ class ExchangeRateServiceTest {
         BigDecimal rate = service.getRate("EUR", "USD");
 
         assertThat(rate).isEqualByComparingTo("1.0823");
+        mockServer.verify();
+    }
+
+    @Test
+    void getRate_eurToBgn_usesFixedConversionWithoutHttpCall() {
+        BigDecimal rate = service.getRate("EUR", "BGN");
+
+        assertThat(rate).isEqualByComparingTo("1.95583");
+        mockServer.verify();
+    }
+
+    @Test
+    void getRate_bgnToEur_usesInverseFixedConversionWithoutHttpCall() {
+        BigDecimal rate = service.getRate("BGN", "EUR");
+
+        assertThat(rate).isEqualByComparingTo("0.511291881196");
+        mockServer.verify();
+    }
+
+    @Test
+    void getRate_bgnToUsd_bridgesThroughEurProviderRate() {
+        mockServer.expect(requestTo(BASE_URL + "/latest?from=EUR&to=USD"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        """
+                        {"amount":1.0,"base":"EUR","date":"2026-07-13","rates":{"USD":1.1424}}
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        BigDecimal rate = service.getRate("BGN", "USD");
+
+        assertThat(rate).isEqualByComparingTo("0.584099845078");
+        mockServer.verify();
+    }
+
+    @Test
+    void getRate_usdToBgn_bridgesThroughEurProviderRate() {
+        mockServer.expect(requestTo(BASE_URL + "/latest?from=USD&to=EUR"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        """
+                        {"amount":1.0,"base":"USD","date":"2026-07-13","rates":{"EUR":0.87535}}
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        BigDecimal rate = service.getRate("USD", "BGN");
+
+        assertThat(rate).isEqualByComparingTo("1.7120357905");
         mockServer.verify();
     }
 
