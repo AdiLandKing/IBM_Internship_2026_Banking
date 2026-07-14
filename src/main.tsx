@@ -11,13 +11,6 @@ const stats = [
   { value: '180', label: 'Countries Served' },
 ];
 
-const recentTransactions = [
-  { name: 'Hamilton Family Office', type: 'Wire transfer', amount: '-$48,250.00', date: 'Jul 02', status: 'Completed' },
-  { name: 'Treasury Income Sweep', type: 'Portfolio credit', amount: '+$12,940.18', date: 'Jul 01', status: 'Settled' },
-  { name: 'Zurich Custody Account', type: 'International transfer', amount: '-$86,000.00', date: 'Jun 28', status: 'Reviewed' },
-  { name: 'SAFE Bank Reserve', type: 'Internal transfer', amount: '+$250,000.00', date: 'Jun 25', status: 'Completed' },
-];
-
 const adminMetrics = [
   { label: 'Active Clients', value: '12,084', detail: '+42 this month', icon: Users },
   { label: 'Transfers Pending', value: '18', detail: '$2.8M under review', icon: Activity },
@@ -39,20 +32,6 @@ const adminMenus: { id: AdminMenuId; label: string; description: string; icon: L
   { id: 'users', label: 'Search Users', description: 'Find client profiles and roles', icon: Users },
   { id: 'logs', label: 'Transfer Logs', description: 'Audit completed transfer activity', icon: Activity },
   { id: 'access', label: 'User Access', description: 'Create users or grant admin access', icon: ShieldCheck },
-];
-
-const adminUsers = [
-  { name: 'Elena Hamilton', email: 'elena@hamilton-office.com', role: 'Client', status: 'Active', lastSeen: 'Today' },
-  { name: 'Marcus Mori', email: 'marcus@mori-capital.com', role: 'Client', status: 'Pending KYC', lastSeen: 'Yesterday' },
-  { name: 'Nadia Ainsley', email: 'nadia@ainsley.co', role: 'Advisor', status: 'Active', lastSeen: '12 min ago' },
-  { name: 'Theo Grant', email: 'theo.grant@safebank.com', role: 'Admin', status: 'Active', lastSeen: '3 min ago' },
-];
-
-const transferLogs = [
-  { id: 'TRF-90421', user: 'Hamilton Family Office', amount: '$48,250.00', type: 'Domestic wire', status: 'Completed', date: 'Jul 02, 2026' },
-  { id: 'TRF-90403', user: 'Zurich Custody Account', amount: '$86,000.00', type: 'International wire', status: 'Reviewed', date: 'Jun 28, 2026' },
-  { id: 'TRF-90377', user: 'SAFE Bank Reserve', amount: '$250,000.00', type: 'Internal transfer', status: 'Completed', date: 'Jun 25, 2026' },
-  { id: 'TRF-90312', user: 'Mori Capital Trust', amount: '$19,430.00', type: 'Portfolio funding', status: 'Flagged', date: 'Jun 22, 2026' },
 ];
 
 const accessRequests = [
@@ -81,12 +60,42 @@ type AccountResponse = {
   balance: number | string;
   currency: string;
   status: AccountStatus;
-  createdAt: string | null;
+  createdAt?: string | null;
 };
 
 type RecipientAccountResponse = {
   iban: string;
   currency: string;
+};
+
+type ApiPage<T> = {
+  content: T[];
+  totalElements?: number;
+  totalPages?: number;
+};
+
+type AdminUserResponse = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'USER' | 'ADMIN';
+  accountCount: number;
+  active: boolean;
+  accounts: AccountResponse[];
+};
+
+type AdminTransactionResponse = {
+  transactionId: number;
+  sourceIban: string;
+  destinationIban: string;
+  amount: number | string;
+  sourceCurrency: string;
+  creditedAmount: number | string;
+  destinationCurrency: string;
+  reason: string;
+  timeStamp: string;
+  status: string;
+  exchangeRateUsed: number | string;
 };
 
 type AccountCurrency = 'BGN' | 'EUR' | 'USD' | 'GBP';
@@ -111,6 +120,40 @@ type TransferDraft = {
 };
 
 type TransferValidationErrors = Partial<Record<keyof TransferDraft, string>>;
+
+type TransactionStatus = 'PENDING' | 'COMPLETED' | 'FAILED';
+
+type TransactionHistoryResponse = {
+  transactionId: number;
+  sourceIban: string;
+  destinationIban: string;
+  amount: number | string;
+  creditedAmount: number | string | null;
+  sourceCurrency: string | null;
+  destinationCurrency: string | null;
+  reason: string;
+  status: TransactionStatus;
+  timestamp: string;
+};
+
+type TransactionPageResponse = {
+  content: TransactionHistoryResponse[];
+};
+
+type TransferResponse = {
+  transactionId: number;
+  status: TransactionStatus;
+};
+
+class ApiRequestError extends Error {
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(message: string, fieldErrors: Record<string, string> = {}) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.fieldErrors = fieldErrors;
+  }
+}
 
 function getPageFromPath(pathname: string): PageMode {
   if (pathname === '/admin') return 'admin';
@@ -421,7 +464,7 @@ function accountResponseToClientAccount(account: AccountResponse): ClientAccount
     balance: Number(account.balance),
     currency: account.currency,
     status: account.status,
-    opened: formatProfileDate(account.createdAt, 'Not available'),
+    opened: formatProfileDate(account.createdAt ?? null, 'Not available'),
     branch: 'Sofia Private Office',
   };
 }
@@ -457,6 +500,56 @@ async function lookupRecipientAccount(authSession: AuthSession, iban: string): P
 
   if (!response.ok) {
     throw new Error(await getApiErrorMessage(response, 'Recipient IBAN was not found.'));
+  }
+
+  return response.json();
+}
+
+async function fetchTransactions(authSession: AuthSession): Promise<TransactionHistoryResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/transactions`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load transactions.'));
+  }
+
+  const transactionPage = await response.json() as TransactionPageResponse;
+  return [...transactionPage.content].sort(
+    (first, second) => new Date(second.timestamp).getTime() - new Date(first.timestamp).getTime(),
+  );
+}
+
+async function submitTransfer(
+  authSession: AuthSession,
+  draft: TransferDraft,
+): Promise<TransferResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/transactions/transfer`, {
+    method: 'POST',
+    headers: {
+      Authorization: getAuthorizationHeader(authSession),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sourceAccountIban: draft.sourceAccountIban,
+      destinationAccountIban: draft.destinationAccountIban.trim().toUpperCase(),
+      amount: Number(draft.amount),
+      reason: draft.reason.trim(),
+    }),
+  });
+
+  if (!response.ok) {
+    let apiError: ApiErrorResponse | null = null;
+    try {
+      apiError = await response.json() as ApiErrorResponse;
+    } catch {
+      apiError = null;
+    }
+    const firstFieldError = apiError?.fieldErrors ? Object.values(apiError.fieldErrors)[0] : undefined;
+    throw new ApiRequestError(
+      firstFieldError ?? apiError?.message ?? 'Unable to send the transfer.',
+      apiError?.fieldErrors,
+    );
   }
 
   return response.json();
@@ -522,6 +615,52 @@ async function updateBankAccountStatus(
   }
 
   return accountResponseToClientAccount(await response.json() as AccountResponse);
+}
+
+async function fetchAdminUsers(authSession: AuthSession): Promise<AdminUserResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load users.'));
+  }
+
+  const page = await response.json() as ApiPage<AdminUserResponse>;
+  return page.content ?? [];
+}
+
+async function fetchAdminTransactions(authSession: AuthSession): Promise<AdminTransactionResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/transactions`, {
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response, 'Unable to load transfer logs.'));
+  }
+
+  const page = await response.json() as ApiPage<AdminTransactionResponse>;
+  return page.content ?? [];
+}
+
+async function updateAdminAccountStatus(
+  authSession: AuthSession,
+  iban: string,
+  action: 'block' | 'unblock',
+): Promise<AccountResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/admin/accounts/${encodeURIComponent(iban)}/${action}`, {
+    method: 'PUT',
+    headers: { Authorization: getAuthorizationHeader(authSession) },
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(
+      response,
+      action === 'block' ? 'Unable to block account.' : 'Unable to unblock account.',
+    ));
+  }
+
+  return response.json();
 }
 
 
@@ -925,7 +1064,7 @@ function AccountsPage({
   }, [authSession]);
 
   React.useEffect(() => {
-    void loadAccounts();
+    runAsyncAction(() => loadAccounts());
   }, [loadAccounts]);
 
   function selectAccount(account: ClientAccount) {
@@ -1094,7 +1233,7 @@ function AccountsPage({
             <p className="text-sm font-bold text-red-500" role="alert">{accountsError}</p>
             <button
               type="button"
-              onClick={() => void loadAccounts()}
+              onClick={() => runAsyncAction(() => loadAccounts())}
               className="mt-5 rounded-md border border-[rgb(var(--button-line))] px-5 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
             >
               Retry
@@ -1279,7 +1418,7 @@ function AccountsPage({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void toggleSelectedAccountLock()}
+                  onClick={() => runAsyncAction(toggleSelectedAccountLock)}
                   disabled={isUpdatingAccountStatus || isSelectedAccountBlocked}
                   className="inline-flex items-center justify-center gap-2 rounded-md border border-[rgb(var(--button-line))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -1941,6 +2080,94 @@ function useTransferAccounts(
   };
 }
 
+function useTransactionHistory(authSession: AuthSession) {
+  const [transactions, setTransactions] = React.useState<TransactionHistoryResponse[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(true);
+  const [transactionsError, setTransactionsError] = React.useState('');
+
+  const loadTransactions = React.useCallback(async () => {
+    setIsLoadingTransactions(true);
+    setTransactionsError('');
+    try {
+      setTransactions(await fetchTransactions(authSession));
+    } catch (error) {
+      setTransactionsError(error instanceof Error ? error.message : 'Unable to load transactions.');
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
+
+  return {
+    transactions,
+    isLoadingTransactions,
+    transactionsError,
+    loadTransactions,
+  };
+}
+
+function getTransferApiFieldErrors(fieldErrors: Record<string, string>): TransferValidationErrors {
+  const validationErrors: TransferValidationErrors = {};
+  const transferFields: (keyof TransferDraft)[] = [
+    'sourceAccountIban',
+    'destinationAccountIban',
+    'amount',
+    'reason',
+  ];
+
+  transferFields.forEach((field) => {
+    if (fieldErrors[field]) validationErrors[field] = fieldErrors[field];
+  });
+  return validationErrors;
+}
+
+function getTransferSuccessMessage(transfer: TransferResponse) {
+  if (transfer.status === 'PENDING') {
+    return `Transfer #${transfer.transactionId} was submitted and is pending.`;
+  }
+  return `Transfer #${transfer.transactionId} completed successfully.`;
+}
+
+function formatTransactionDate(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 'Date unavailable';
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function getTransactionStatusClass(status: TransactionStatus) {
+  if (status === 'COMPLETED') return 'bg-emerald-500/15 text-emerald-500';
+  if (status === 'FAILED') return 'bg-red-500/15 text-red-500';
+  return 'bg-[rgb(var(--gold))]/15 text-[rgb(var(--gold))]';
+}
+
+function getTransactionDisplay(transaction: TransactionHistoryResponse, accounts: ClientAccount[]) {
+  const sourceAccount = accounts.find((account) => account.iban === transaction.sourceIban) ?? null;
+  const destinationAccount = accounts.find((account) => account.iban === transaction.destinationIban) ?? null;
+  const isOutgoing = Boolean(sourceAccount);
+  const counterpartyIban = isOutgoing ? transaction.destinationIban : transaction.sourceIban;
+  const currency = isOutgoing
+    ? transaction.sourceCurrency ?? sourceAccount?.currency ?? 'EUR'
+    : transaction.destinationCurrency ?? destinationAccount?.currency ?? transaction.sourceCurrency ?? 'EUR';
+  const displayedAmount = isOutgoing
+    ? transaction.amount
+    : transaction.creditedAmount ?? transaction.amount;
+  const amount = Number(displayedAmount);
+  const signedAmount = isOutgoing ? -amount : amount;
+
+  return {
+    counterpartyIban,
+    amountLabel: `${signedAmount > 0 ? '+' : ''}${formatCurrencyAmount(signedAmount, currency)}`,
+    isIncoming: signedAmount > 0,
+    direction: isOutgoing ? 'Sent' : 'Received',
+  };
+}
+
 function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
   const [draft, setDraft] = React.useState<TransferDraft>(EMPTY_TRANSFER_DRAFT);
   const [fieldErrors, setFieldErrors] = React.useState<TransferValidationErrors>({});
@@ -1950,14 +2177,21 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
     isLoadingAccounts,
     loadTransferAccounts,
   } = useTransferAccounts(authSession, setDraft);
+  const {
+    transactions,
+    isLoadingTransactions,
+    transactionsError,
+    loadTransactions,
+  } = useTransactionHistory(authSession);
   const [recipientAccount, setRecipientAccount] = React.useState<RecipientAccountResponse | null>(null);
   const [recipientLookupError, setRecipientLookupError] = React.useState('');
   const [isCheckingRecipient, setIsCheckingRecipient] = React.useState(false);
   const [activeStep, setActiveStep] = React.useState<'summary' | 'epin' | null>(null);
   const [ePin, setEPin] = React.useState('');
   const [ePinError, setEPinError] = React.useState('');
+  const [transferError, setTransferError] = React.useState('');
   const [transferNotice, setTransferNotice] = React.useState('');
-  const [isVerifyingEPin, setIsVerifyingEPin] = React.useState(false);
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = React.useState(false);
 
   const sourceAccount = accounts.find((account) => account.iban === draft.sourceAccountIban) ?? null;
   const totalBalanceLabel = getPortfolioTotalLabel(accounts);
@@ -1967,6 +2201,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
 
   function updateDraft(field: keyof TransferDraft, value: string) {
     setTransferNotice('');
+    setTransferError('');
     if (field === 'destinationAccountIban') {
       setRecipientAccount(null);
       setRecipientLookupError('');
@@ -1984,7 +2219,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       return {
         ...currentDraft,
         sourceAccountIban: value,
-        currency: recipientAccount?.currency ?? nextAccount?.currency ?? currentDraft.currency,
+        currency: nextAccount?.currency ?? currentDraft.currency,
       };
     });
   }
@@ -2005,7 +2240,6 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       setDraft((currentDraft) => ({
         ...currentDraft,
         destinationAccountIban: account.iban,
-        currency: account.currency,
       }));
       return account;
     } catch (error) {
@@ -2020,6 +2254,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
   async function reviewTransfer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTransferNotice('');
+    setTransferError('');
     setEPinError('');
     const normalizedDestinationIban = draft.destinationAccountIban.trim().toUpperCase();
     const verifiedRecipient = recipientAccount?.iban === normalizedDestinationIban
@@ -2051,16 +2286,42 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
       return;
     }
 
-    setIsVerifyingEPin(true);
+    setIsSubmittingTransfer(true);
+    let isEPinVerified = false;
     try {
       await verifyEPin(authSession, ePin);
+      isEPinVerified = true;
+      const transfer = await submitTransfer(authSession, draft);
       setActiveStep(null);
       setEPin('');
-      setTransferNotice('E-PIN verified. Transfer submission is paused until the transaction service is available.');
+      setRecipientAccount(null);
+      setRecipientLookupError('');
+      await Promise.all([loadTransferAccounts(), loadTransactions()]);
+
+      if (transfer.status === 'FAILED') {
+        setTransferError(`Transfer #${transfer.transactionId} failed. Check the available balance and try again.`);
+        return;
+      }
+
+      setDraft({
+        ...EMPTY_TRANSFER_DRAFT,
+        sourceAccountIban: draft.sourceAccountIban,
+        currency: sourceAccount?.currency ?? 'EUR',
+      });
+      setTransferNotice(getTransferSuccessMessage(transfer));
     } catch (error) {
-      setEPinError(error instanceof Error ? error.message : 'Unable to verify E-PIN.');
+      if (isEPinVerified) {
+        if (error instanceof ApiRequestError) {
+          setFieldErrors(getTransferApiFieldErrors(error.fieldErrors));
+        }
+        setActiveStep(null);
+        setEPin('');
+        setTransferError(error instanceof Error ? error.message : 'Unable to send the transfer.');
+      } else {
+        setEPinError(error instanceof Error ? error.message : 'Unable to verify E-PIN.');
+      }
     } finally {
-      setIsVerifyingEPin(false);
+      setIsSubmittingTransfer(false);
     }
   }
 
@@ -2072,6 +2333,10 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
 
   function retryTransferAccounts() {
     loadTransferAccounts();
+  }
+
+  function retryTransactions() {
+    loadTransactions();
   }
 
   function checkCurrentRecipientIban() {
@@ -2200,7 +2465,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                     className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))] outline-none"
                   />
                   <p className="mt-2 text-xs font-bold text-[rgb(var(--text-muted))]">
-                    Set automatically from the recipient account.
+                    Set automatically from the source account.
                   </p>
                 </label>
               </div>
@@ -2217,6 +2482,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 {fieldErrors.reason && <p className="mt-2 text-xs font-bold text-red-500">{fieldErrors.reason}</p>}
               </label>
               {ePinError && !activeStep && <p className="text-sm font-bold text-red-500" role="alert">{ePinError}</p>}
+              {transferError && <p className="text-sm font-bold text-red-500" role="alert">{transferError}</p>}
               {transferNotice && <output className="text-sm font-bold text-emerald-500">{transferNotice}</output>}
               <button
                 className="mt-2 rounded-md bg-[rgb(var(--gold))] px-6 py-3.5 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
@@ -2235,22 +2501,53 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
               <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">Recent Activity</p>
               <h2 className="mt-2 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Transaction History</h2>
             </div>
-            <span className="text-sm font-bold text-[rgb(var(--text-muted))]">Last 30 days</span>
+            <span className="text-sm font-bold text-[rgb(var(--text-muted))]">Latest transactions</span>
           </div>
-          <div className="divide-y divide-[rgb(var(--line))]">
-            {recentTransactions.map((transaction) => (
-              <div key={`${transaction.name}-${transaction.date}`} className="grid gap-3 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-                <div>
-                  <p className="font-bold text-[rgb(var(--text-strong))]">{transaction.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{transaction.type} · {transaction.date}</p>
-                </div>
-                <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{transaction.status}</span>
-                <span className={`font-display text-xl font-bold ${transaction.amount.startsWith('+') ? 'text-emerald-500' : 'text-[rgb(var(--text-strong))]'}`}>
-                  {transaction.amount}
-                </span>
-              </div>
-            ))}
-          </div>
+          {isLoadingTransactions && (
+            <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+              Loading transactions...
+            </p>
+          )}
+          {!isLoadingTransactions && transactionsError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
+              <p className="text-sm font-bold text-red-500" role="alert">{transactionsError}</p>
+              <button
+                type="button"
+                onClick={retryTransactions}
+                className="mt-3 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!isLoadingTransactions && !transactionsError && transactions.length === 0 && (
+            <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-5 text-sm font-bold text-[rgb(var(--text-muted))]">
+              No transactions yet. Your transfers will appear here.
+            </p>
+          )}
+          {!isLoadingTransactions && !transactionsError && transactions.length > 0 && (
+            <div className="divide-y divide-[rgb(var(--line))]">
+              {transactions.map((transaction) => {
+                const display = getTransactionDisplay(transaction, accounts);
+                return (
+                  <div key={transaction.transactionId} className="grid gap-3 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="break-all font-mono text-sm font-bold text-[rgb(var(--text-strong))]">{display.counterpartyIban}</p>
+                      <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">
+                        {display.direction} · {transaction.reason} · {formatTransactionDate(transaction.timestamp)}
+                      </p>
+                    </div>
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.08em] ${getTransactionStatusClass(transaction.status)}`}>
+                      {transaction.status}
+                    </span>
+                    <span className={`font-display text-xl font-bold ${display.isIncoming ? 'text-emerald-500' : 'text-[rgb(var(--text-strong))]'}`}>
+                      {display.amountLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
       {activeStep && (
@@ -2301,7 +2598,7 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.32em] text-[rgb(var(--gold))]">E-PIN Verification</p>
                 <h2 className="mt-3 font-display text-3xl font-semibold text-[rgb(var(--text-strong))]">Confirm Transfer</h2>
                 <p className="mt-4 text-sm leading-6 text-[rgb(var(--text-muted))]">
-                  Enter your 6-digit E-PIN. This only verifies your E-PIN for now; the transaction service is not connected yet.
+                  Enter your 6-digit E-PIN to authorize and send this transfer.
                 </p>
                 <label className="mt-6 block">
                   <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">E-PIN</span>
@@ -2326,15 +2623,15 @@ function TransactionsPage({ authSession, showHome }: TransactionsPageProps) {
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <button
                     type="submit"
-                    disabled={isVerifyingEPin}
+                    disabled={isSubmittingTransfer}
                     className="rounded-md bg-[rgb(var(--gold))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--gold-ink))] shadow-gold disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isVerifyingEPin ? 'Checking E-PIN...' : 'Confirm & Send'}
+                    {isSubmittingTransfer ? 'Sending...' : 'Confirm & Send'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveStep('summary')}
-                    disabled={isVerifyingEPin}
+                    disabled={isSubmittingTransfer}
                     className="rounded-md border border-[rgb(var(--button-line))] px-6 py-3 text-sm font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Back
@@ -2526,9 +2823,356 @@ function PortfolioPage({
   );
 }
 
-function AdminPage({ showHome }: { showHome: () => void }) {
+type AdminPageProps = Readonly<{
+  authSession: AuthSession;
+  showHome: () => void;
+}>;
+
+type AdminUsersPanelProps = Readonly<{
+  searchQuery: string;
+  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+  accountActionError: string;
+  isLoadingUsers: boolean;
+  usersError: string;
+  filteredUsers: AdminUserResponse[];
+  updatingAccountIban: string | null;
+  loadUsers: () => Promise<void>;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminUserCardProps = Readonly<{
+  user: AdminUserResponse;
+  updatingAccountIban: string | null;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminAccountRowProps = Readonly<{
+  account: AccountResponse;
+  updatingAccountIban: string | null;
+  toggleAdminAccountStatus: (account: AccountResponse) => Promise<void>;
+}>;
+
+type AdminTransactionsPanelProps = Readonly<{
+  isLoadingTransactions: boolean;
+  transactionsError: string;
+  transactions: AdminTransactionResponse[];
+  loadTransactions: () => Promise<void>;
+}>;
+
+type AdminRetryPanelProps = Readonly<{
+  message: string;
+  onRetry: () => Promise<void>;
+}>;
+
+function runAsyncAction(action: () => Promise<void>) {
+  action().catch(() => undefined);
+}
+
+function getAdminAccountStatusClass(status: AccountStatus) {
+  return status === 'BLOCKED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500';
+}
+
+function getAdminUserStatusClass(isActive: boolean) {
+  return isActive ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500';
+}
+
+function getClientQueuePriorityClass(priority: string) {
+  if (priority === 'High') return 'bg-red-500/15 text-red-500';
+  if (priority === 'Medium') return 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]';
+  return 'bg-emerald-500/15 text-emerald-500';
+}
+
+function getAdminAccountAction(status: AccountStatus) {
+  return status === 'BLOCKED' ? 'unblock' : 'block';
+}
+
+function getAdminAccountActionLabel(isUpdating: boolean, action: string) {
+  if (isUpdating) return 'Updating...';
+  return action === 'block' ? 'Block' : 'Unblock';
+}
+
+function updateUsersWithAccount(currentUsers: AdminUserResponse[], updatedAccount: AccountResponse) {
+  return currentUsers.map((user) => ({
+    ...user,
+    accounts: user.accounts.map((candidate) => (
+      candidate.iban === updatedAccount.iban ? updatedAccount : candidate
+    )),
+  }));
+}
+
+function AdminRetryPanel({ message, onRetry }: AdminRetryPanelProps) {
+  return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-5">
+      <p className="text-sm font-bold text-red-500" role="alert">{message}</p>
+      <button
+        type="button"
+        onClick={() => runAsyncAction(onRetry)}
+        className="mt-4 rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))]"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function AdminAccountRow({ account, updatingAccountIban, toggleAdminAccountStatus }: AdminAccountRowProps) {
+  const action = getAdminAccountAction(account.status);
+  const isUpdating = updatingAccountIban === account.iban;
+  const actionLabel = getAdminAccountActionLabel(isUpdating, action);
+
+  return (
+    <div className="grid gap-3 rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] p-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+      <div>
+        <p className="font-bold text-[rgb(var(--text-strong))]">{account.name}</p>
+        <p className="mt-1 font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{account.iban} · {account.currency}</p>
+      </div>
+      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getAdminAccountStatusClass(account.status)}`}>
+        {account.status}
+      </span>
+      <button
+        type="button"
+        onClick={() => runAsyncAction(() => toggleAdminAccountStatus(account))}
+        disabled={Boolean(updatingAccountIban)}
+        className="rounded-md border border-[rgb(var(--button-line))] px-4 py-2 text-xs font-extrabold text-[rgb(var(--text-strong))] transition hover:border-[rgb(var(--gold))] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function AdminUserCard({ user, updatingAccountIban, toggleAdminAccountStatus }: AdminUserCardProps) {
+  return (
+    <div className="grid gap-4 py-5">
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+        <div>
+          <p className="font-bold text-[rgb(var(--text-strong))]">{user.firstName} {user.lastName}</p>
+          <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">
+            {user.email} · {user.accountCount} account{user.accountCount === 1 ? '' : 's'}
+          </p>
+        </div>
+        <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getAdminUserStatusClass(user.active)}`}>
+          {user.active ? 'Active' : 'Inactive'}
+        </span>
+      </div>
+      <div className="grid gap-3">
+        {user.accounts.length > 0 ? (
+          user.accounts.map((account) => (
+            <AdminAccountRow
+              key={account.iban}
+              account={account}
+              updatingAccountIban={updatingAccountIban}
+              toggleAdminAccountStatus={toggleAdminAccountStatus}
+            />
+          ))
+        ) : (
+          <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-muted))]">
+            No accounts for this user.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminUsersPanel({
+  searchQuery,
+  setSearchQuery,
+  accountActionError,
+  isLoadingUsers,
+  usersError,
+  filteredUsers,
+  updatingAccountIban,
+  loadUsers,
+  toggleAdminAccountStatus,
+}: AdminUsersPanelProps) {
+  let content = (
+    <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+      No users found.
+    </p>
+  );
+
+  if (isLoadingUsers) {
+    content = (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading users...
+      </p>
+    );
+  } else if (usersError) {
+    content = <AdminRetryPanel message={usersError} onRetry={loadUsers} />;
+  } else if (filteredUsers.length > 0) {
+    content = (
+      <div className="divide-y divide-[rgb(var(--line))]">
+        {filteredUsers.map((user) => (
+          <AdminUserCard
+            key={user.email}
+            user={user}
+            updatingAccountIban={updatingAccountIban}
+            toggleAdminAccountStatus={toggleAdminAccountStatus}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="mb-5 block">
+        <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
+        <input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
+          placeholder="Search by name, email, account, IBAN, or status"
+        />
+      </label>
+      {accountActionError && (
+        <p className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500" role="alert">
+          {accountActionError}
+        </p>
+      )}
+      {content}
+    </div>
+  );
+}
+
+function AdminTransactionRow({ transaction }: Readonly<{ transaction: AdminTransactionResponse }>) {
+  const amount = formatCurrencyAmount(Number(transaction.amount), transaction.sourceCurrency);
+  const creditedAmount = formatCurrencyAmount(Number(transaction.creditedAmount), transaction.destinationCurrency);
+  const statusClass = transaction.status === 'FAILED' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500';
+
+  return (
+    <div className="grid gap-3 py-4 xl:grid-cols-[0.65fr_1fr_auto_auto] xl:items-center">
+      <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">TRF-{transaction.transactionId}</span>
+      <div>
+        <p className="break-all font-mono text-xs font-bold text-[rgb(var(--text-strong))]">{transaction.sourceIban}</p>
+        <p className="mt-1 break-all font-mono text-xs font-bold text-[rgb(var(--text-muted))]">{transaction.destinationIban}</p>
+        <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">
+          {transaction.reason} · {formatProfileDate(transaction.timeStamp, 'Date unavailable')}
+        </p>
+      </div>
+      <div className="text-left xl:text-right">
+        <span className="block font-display text-xl font-bold text-[rgb(var(--text-strong))]">{amount}</span>
+        <span className="mt-1 block text-xs font-bold text-[rgb(var(--text-muted))]">Credited {creditedAmount}</span>
+      </div>
+      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${statusClass}`}>
+        {transaction.status}
+      </span>
+    </div>
+  );
+}
+
+function AdminTransactionsPanel({
+  isLoadingTransactions,
+  transactionsError,
+  transactions,
+  loadTransactions,
+}: AdminTransactionsPanelProps) {
+  if (isLoadingTransactions) {
+    return (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        Loading transfer logs...
+      </p>
+    );
+  }
+
+  if (transactionsError) {
+    return <AdminRetryPanel message={transactionsError} onRetry={loadTransactions} />;
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <p className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-4 text-sm font-bold text-[rgb(var(--text-muted))]">
+        No transfer logs found.
+      </p>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-[rgb(var(--line))]">
+      {transactions.map((transaction) => (
+        <AdminTransactionRow key={transaction.transactionId} transaction={transaction} />
+      ))}
+    </div>
+  );
+}
+
+function AdminPage({ authSession, showHome }: AdminPageProps) {
   const [activeMenu, setActiveMenu] = React.useState<AdminMenuId>('pending');
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [users, setUsers] = React.useState<AdminUserResponse[]>([]);
+  const [transactions, setTransactions] = React.useState<AdminTransactionResponse[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = React.useState(false);
+  const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(false);
+  const [usersError, setUsersError] = React.useState('');
+  const [transactionsError, setTransactionsError] = React.useState('');
+  const [accountActionError, setAccountActionError] = React.useState('');
+  const [updatingAccountIban, setUpdatingAccountIban] = React.useState<string | null>(null);
   const activeMenuDetails = adminMenus.find((menu) => menu.id === activeMenu) ?? adminMenus[0];
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredUsers = normalizedSearchQuery
+    ? users.filter((user) => {
+      const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
+      const accountMatch = user.accounts.some((account) => (
+        account.iban.toLowerCase().includes(normalizedSearchQuery)
+        || account.name.toLowerCase().includes(normalizedSearchQuery)
+        || account.status.toLowerCase().includes(normalizedSearchQuery)
+      ));
+      return fullName.includes(normalizedSearchQuery)
+        || user.email.toLowerCase().includes(normalizedSearchQuery)
+        || user.role.toLowerCase().includes(normalizedSearchQuery)
+        || accountMatch;
+    })
+    : users;
+
+  const loadUsers = React.useCallback(async () => {
+    setIsLoadingUsers(true);
+    setUsersError('');
+    setAccountActionError('');
+    try {
+      setUsers(await fetchAdminUsers(authSession));
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Unable to load users.');
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, [authSession]);
+
+  const loadTransactions = React.useCallback(async () => {
+    setIsLoadingTransactions(true);
+    setTransactionsError('');
+    try {
+      setTransactions(await fetchAdminTransactions(authSession));
+    } catch (error) {
+      setTransactionsError(error instanceof Error ? error.message : 'Unable to load transfer logs.');
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, [authSession]);
+
+  React.useEffect(() => {
+    if (activeMenu === 'users') {
+      runAsyncAction(loadUsers);
+    }
+    if (activeMenu === 'logs') {
+      runAsyncAction(loadTransactions);
+    }
+  }, [activeMenu, loadTransactions, loadUsers]);
+
+  async function toggleAdminAccountStatus(account: AccountResponse) {
+    const action = account.status === 'BLOCKED' ? 'unblock' : 'block';
+    setUpdatingAccountIban(account.iban);
+    setAccountActionError('');
+    try {
+      const updatedAccount = await updateAdminAccountStatus(authSession, account.iban, action);
+      setUsers((currentUsers) => updateUsersWithAccount(currentUsers, updatedAccount));
+    } catch (error) {
+      setAccountActionError(error instanceof Error ? error.message : `Unable to ${action} account.`);
+    } finally {
+      setUpdatingAccountIban(null);
+    }
+  }
 
   return (
     <section className="min-h-screen bg-[rgb(var(--page-bg))] px-6 pb-20 pt-28 sm:px-10 lg:pt-32">
@@ -2551,6 +3195,8 @@ function AdminPage({ showHome }: { showHome: () => void }) {
           <div className="flex max-w-[420px] items-center gap-3 rounded-lg border border-[rgb(var(--card-line))] bg-[rgb(var(--card-bg))] px-4 py-3">
             <Search size={17} className="text-[rgb(var(--text-muted))]" />
             <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
               className="w-full bg-transparent text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]"
               placeholder="Search clients, transfers, reviews"
             />
@@ -2618,7 +3264,7 @@ function AdminPage({ showHome }: { showHome: () => void }) {
                 <p className="mt-2 text-sm font-semibold text-[rgb(var(--text-muted))]">{activeMenuDetails.description}</p>
               </div>
               <span className="rounded-full bg-[rgb(var(--icon-bg))] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-[rgb(var(--gold))]">
-                Frontend Demo
+                {activeMenu === 'users' || activeMenu === 'logs' ? 'Live API' : 'Frontend Demo'}
               </span>
             </div>
 
@@ -2630,15 +3276,7 @@ function AdminPage({ showHome }: { showHome: () => void }) {
                       <p className="font-bold text-[rgb(var(--text-strong))]">{item.name}</p>
                       <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{item.request} · {item.time}</p>
                     </div>
-                    <span
-                      className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${
-                        item.priority === 'High'
-                          ? 'bg-red-500/15 text-red-500'
-                          : item.priority === 'Medium'
-                            ? 'bg-[rgb(var(--icon-bg))] text-[rgb(var(--gold))]'
-                            : 'bg-emerald-500/15 text-emerald-500'
-                      }`}
-                    >
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${getClientQueuePriorityClass(item.priority)}`}>
                       {item.priority}
                     </span>
                     <div className="flex gap-2">
@@ -2655,59 +3293,26 @@ function AdminPage({ showHome }: { showHome: () => void }) {
             )}
 
             {activeMenu === 'users' && (
-              <div>
-                <label className="mb-5 block">
-                  <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-[rgb(var(--text-muted))]">Search Users</span>
-                  <input
-                    className="w-full rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]"
-                    placeholder="Search by name, email, role, or status"
-                  />
-                </label>
-                <div className="divide-y divide-[rgb(var(--line))]">
-                  {adminUsers.map((user) => (
-                    <div key={user.email} className="grid gap-3 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center">
-                      <div>
-                        <p className="font-bold text-[rgb(var(--text-strong))]">{user.name}</p>
-                        <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{user.email} · Last seen {user.lastSeen}</p>
-                      </div>
-                      <span className="text-sm font-extrabold text-[rgb(var(--gold))]">{user.role}</span>
-                      <span className="w-fit rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-500">
-                        {user.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AdminUsersPanel
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                accountActionError={accountActionError}
+                isLoadingUsers={isLoadingUsers}
+                usersError={usersError}
+                filteredUsers={filteredUsers}
+                updatingAccountIban={updatingAccountIban}
+                loadUsers={loadUsers}
+                toggleAdminAccountStatus={toggleAdminAccountStatus}
+              />
             )}
 
             {activeMenu === 'logs' && (
-              <div>
-                <div className="mb-5 grid gap-3 sm:grid-cols-3">
-                  <input className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="Transfer ID" />
-                  <input className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none placeholder:text-[rgb(var(--text-muted))]/70 focus:border-[rgb(var(--gold))]" placeholder="User or account" />
-                  <select className="rounded-md border border-[rgb(var(--line))] bg-[rgb(var(--page-bg))] px-4 py-3 text-sm font-semibold text-[rgb(var(--text-strong))] outline-none focus:border-[rgb(var(--gold))]">
-                    <option>All statuses</option>
-                    <option>Completed</option>
-                    <option>Reviewed</option>
-                    <option>Flagged</option>
-                  </select>
-                </div>
-                <div className="divide-y divide-[rgb(var(--line))]">
-                  {transferLogs.map((log) => (
-                    <div key={log.id} className="grid gap-3 py-4 xl:grid-cols-[0.7fr_1fr_auto_auto] xl:items-center">
-                      <span className="font-mono text-sm font-bold text-[rgb(var(--gold))]">{log.id}</span>
-                      <div>
-                        <p className="font-bold text-[rgb(var(--text-strong))]">{log.user}</p>
-                        <p className="mt-1 text-sm font-semibold text-[rgb(var(--text-muted))]">{log.type} · {log.date}</p>
-                      </div>
-                      <span className="font-display text-xl font-bold text-[rgb(var(--text-strong))]">{log.amount}</span>
-                      <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-[0.16em] ${log.status === 'Flagged' ? 'bg-red-500/15 text-red-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
-                        {log.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AdminTransactionsPanel
+                isLoadingTransactions={isLoadingTransactions}
+                transactionsError={transactionsError}
+                transactions={transactions}
+                loadTransactions={loadTransactions}
+              />
             )}
 
             {activeMenu === 'access' && (
@@ -2871,11 +3476,11 @@ function AdminRoute({
     );
   }
 
-  if (!isAllowed) {
+  if (!authSession || !isAllowed) {
     return <AdminAccessGate authSession={authSession} openAuth={openAuth} showHome={showHome} />;
   }
 
-  return <AdminPage showHome={showHome} />;
+  return <AdminPage authSession={authSession} showHome={showHome} />;
 }
 
 function Cta({ showTransactions, showPortfolio }: { showTransactions: () => void; showPortfolio: () => void }) {
